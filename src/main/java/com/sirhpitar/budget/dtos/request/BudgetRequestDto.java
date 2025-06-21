@@ -13,6 +13,6 @@ import lombok.Setter;
 @Setter
 @Builder
 public class BudgetRequestDto {
-
     private String month;
+    private Long userId;
 }

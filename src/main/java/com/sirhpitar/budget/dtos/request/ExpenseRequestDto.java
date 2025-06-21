@@ -1,8 +1,9 @@
 package com.sirhpitar.budget.dtos.request;
 
-import com.sirhpitar.budget.entities.Category;
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
+import lombok.Setter;
 
 import java.time.LocalDate;
 
@@ -11,8 +12,11 @@ import java.time.LocalDate;
  */
 @AllArgsConstructor
 @Getter
+@Setter
+@Builder
 public class ExpenseRequestDto {
-    private Category category;
+    private Long categoryId;
+    private Long userId;
     private Double amount;
     private String description;
     private LocalDate date;

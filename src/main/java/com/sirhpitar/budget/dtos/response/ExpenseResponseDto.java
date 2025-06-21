@@ -1,7 +1,9 @@
 package com.sirhpitar.budget.dtos.response;
 
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
+import lombok.Setter;
 
 import java.time.LocalDate;
 
@@ -10,7 +12,12 @@ import java.time.LocalDate;
  */
 @AllArgsConstructor
 @Getter
-public class ExpenseDto {
+@Setter
+@Builder
+public class ExpenseResponseDto {
+    private Long id;
+    private Long categoryId;
+    private Long userId;
     private Double amount;
     private String description;
     private LocalDate date;

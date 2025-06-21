@@ -1,8 +1,9 @@
 package com.sirhpitar.budget.dtos.response;
 
-import com.sirhpitar.budget.dtos.request.UserDto;
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
+import lombok.Setter;
 
 import java.time.LocalDateTime;
 
@@ -11,9 +12,13 @@ import java.time.LocalDateTime;
  */
 @AllArgsConstructor
 @Getter
-public class NotificationDto {
+@Setter
+@Builder
+public class NotificationResponseDto {
+    private Long id;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
-    private UserDto user;
+    private Long userId;
     private String message;
+    private boolean read;
 }

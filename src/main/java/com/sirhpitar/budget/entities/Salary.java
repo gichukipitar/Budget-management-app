@@ -6,18 +6,14 @@ import lombok.Setter;
 
 import java.time.LocalDate;
 
-@Entity
-@Setter
 @Getter
-@Table(name = "expenses")
-public class Expense extends Auditable {
+@Setter
+@Entity
+@Table(name = "salaries")
+public class Salary extends Auditable {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-    
-    @ManyToOne
-    @JoinColumn(name = "category_id", nullable = false)
-    private Category category;
 
     @ManyToOne
     @JoinColumn(name = "user_id", nullable = false)
@@ -25,7 +21,7 @@ public class Expense extends Auditable {
 
     private Double amount;
 
-    private String description;
+    private LocalDate dateReceived;
 
-    private LocalDate date;
+    private String description; // Optional: for notes like "June salary", "Bonus", etc.
 }
