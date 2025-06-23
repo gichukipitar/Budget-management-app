@@ -14,7 +14,8 @@ spec:
     spec:
       containers:
         - name: budget
-          image: budget:latest
+          image: localhost/budget:latest
+          imagePullPolicy: Never
           ports:
             - containerPort: 8080
           env:
@@ -30,15 +31,3 @@ spec:
                 secretKeyRef:
                   name: budget-postgres-secret
                   key: POSTGRES_PASSWORD
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: budget
-spec:
-  type: NodePort
-  ports:
-    - port: 8080
-      targetPort: 8080
-  selector:
-    app: budget
