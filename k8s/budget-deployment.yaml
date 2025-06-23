@@ -20,7 +20,7 @@ spec:
             - containerPort: 8080
           env:
             - name: SPRING_DATASOURCE_URL
-              value: jdbc:postgresql://budget-postgres:5432/budget
+              value: jdbc:postgresql://budget-postgres:5432/budget_app
             - name: SPRING_DATASOURCE_USERNAME
               valueFrom:
                 secretKeyRef:
