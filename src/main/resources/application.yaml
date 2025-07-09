@@ -3,6 +3,7 @@ spring:
     name: budget
   datasource:
     url: jdbc:postgresql://localhost:5432/budget_app
+    #    url: jdbc:postgresql://budget-postgres:5432/budget_app
     username: postgres
     password: postgres
   jpa:
