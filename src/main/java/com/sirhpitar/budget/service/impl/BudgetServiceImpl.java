@@ -15,6 +15,8 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+import java.time.LocalDate;
+
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -24,7 +26,6 @@ public class BudgetServiceImpl implements BudgetService {
     private final UserRepository userRepository;
     private final BudgetMapper budgetMapper;
 
-    @Override
     public Mono<BudgetResponseDto> createBudget(BudgetRequestDto dto) {
         return Mono.fromCallable(() -> userRepository.findById(dto.getUserId()))
                 .subscribeOn(Schedulers.boundedElastic())
@@ -33,6 +34,11 @@ public class BudgetServiceImpl implements BudgetService {
                         return Mono.error(new IllegalArgumentException("User not found"));
                     }
                     User user = optionalUser.get();
+
+                    if (dto.getBudgetDate() == null) {
+                        dto.setBudgetDate(LocalDate.now());
+                    }
+
                     Budget budget = budgetMapper.toEntity(dto, user);
 
                     return Mono.fromCallable(() -> budgetRepository.save(budget))
@@ -51,7 +57,6 @@ public class BudgetServiceImpl implements BudgetService {
                 );
     }
 
-
     @Override
     public Mono<BudgetResponseDto> updateBudget(Long id, BudgetRequestDto dto) {
         return Mono.fromCallable(() -> budgetRepository.findById(id))
@@ -62,7 +67,9 @@ public class BudgetServiceImpl implements BudgetService {
                     }
 
                     Budget budget = optionalBudget.get();
-                    budget.setMonth(dto.getMonth());
+
+                    LocalDate dateToSet = dto.getBudgetDate() != null ? dto.getBudgetDate() : LocalDate.now();
+                    budget.setBudgetDate(dateToSet);
 
                     if (dto.getUserId() != null && !dto.getUserId().equals(budget.getUser().getId())) {
                         return Mono.fromCallable(() -> userRepository.findById(dto.getUserId()))
@@ -101,6 +108,5 @@ public class BudgetServiceImpl implements BudgetService {
                 .subscribeOn(Schedulers.boundedElastic())
                 .flatMapMany(budgets -> Flux.fromIterable(budgets)
                         .map(budgetMapper::toDto));
-
     }
 }

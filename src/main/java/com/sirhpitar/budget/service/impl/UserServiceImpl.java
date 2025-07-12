@@ -18,7 +18,6 @@ public class UserServiceImpl implements UserService {
     private final UserRepository userRepository;
     private final UserMapper userMapper;
 
-
     @Override
     public Mono<UserResponseDto> createUser(UserRequestDto dto) {
         return Mono.fromCallable(() -> {
@@ -26,15 +25,6 @@ public class UserServiceImpl implements UserService {
             User saved = userRepository.save(user);
             return userMapper.toDto(saved);
         }).subscribeOn(Schedulers.boundedElastic());
-    }
-
-    @Override
-    public Mono<UserResponseDto> getUserById(Long id) {
-        return Mono.fromCallable(() ->
-                userRepository.findById(id)
-                        .map(userMapper::toDto)
-                        .orElseThrow(() -> new RuntimeException("User not found"))
-        ).subscribeOn(Schedulers.boundedElastic());
     }
 
     @Override
@@ -46,23 +36,36 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    public Mono<UserResponseDto> getUserById(Long id) {
+        return Mono.fromCallable(() ->
+                userRepository.findById(id)
+                        .map(userMapper::toDto)
+                        .orElseThrow(() -> new IllegalArgumentException("User not found"))
+        ).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    @Override
     public Mono<UserResponseDto> updateUser(Long id, UserRequestDto dto) {
         return Mono.fromCallable(() -> {
             User user = userRepository.findById(id)
-                    .orElseThrow(() -> new RuntimeException("User not found"));
+                    .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
-            user.setUsername(dto.getUsername());
-            user.setEmail(dto.getEmail());
+            User updatedUser = userMapper.toEntity(dto);
+            updatedUser.setId(user.getId());
 
-            User updated = userRepository.save(user);
+            User updated = userRepository.save(updatedUser);
             return userMapper.toDto(updated);
         }).subscribeOn(Schedulers.boundedElastic());
     }
 
     @Override
     public Mono<Void> deleteUser(Long id) {
-        return Mono.fromRunnable(() -> userRepository.deleteById(id))
-                .subscribeOn(Schedulers.boundedElastic())
-                .then();
+        return Mono.fromCallable(() -> {
+            if (!userRepository.existsById(id)) {
+                throw new IllegalArgumentException("User not found");
+            }
+            userRepository.deleteById(id);
+            return null;
+        }).subscribeOn(Schedulers.boundedElastic()).then();
     }
 }

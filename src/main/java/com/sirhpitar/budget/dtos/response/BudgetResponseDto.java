@@ -5,6 +5,8 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.time.LocalDate;
+
 /**
  * DTO for {@link com.sirhpitar.budget.entities.Budget}
  */
@@ -14,6 +16,6 @@ import lombok.Setter;
 @Builder
 public class BudgetResponseDto {
     private Long id;
-    private String month;
+    private LocalDate budgetDate;
     private Long userId;
 }
