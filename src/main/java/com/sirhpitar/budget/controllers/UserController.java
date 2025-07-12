@@ -1,12 +1,14 @@
 package com.sirhpitar.budget.controllers;
 
-import com.sirhpitar.budget.apis.ApiResponse;
-import com.sirhpitar.budget.apis.ApiResponseStatus;
+import com.sirhpitar.budget.api_wrappers.ApiResponse;
+import com.sirhpitar.budget.api_wrappers.ApiResponseUtil;
 import com.sirhpitar.budget.dtos.request.UserRequestDto;
 import com.sirhpitar.budget.dtos.response.UserResponseDto;
 import com.sirhpitar.budget.service.UserService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
@@ -20,63 +22,50 @@ import java.util.List;
 public class UserController {
     private final UserService userService;
 
-
     @PostMapping("/create")
-    public Mono<ResponseEntity<ApiResponse<UserResponseDto>>> createUser(@RequestBody UserRequestDto dto) {
+    public Mono<ResponseEntity<ApiResponse<UserResponseDto>>> createUser(@Valid @RequestBody UserRequestDto dto) {
         return userService.createUser(dto)
-                .map(data -> ResponseEntity.ok(
-                        new ApiResponse<>(ApiResponseStatus.SUCCESS, "User created successfully", data)))
-                .onErrorResume(e -> Mono.just(
-                        ResponseEntity.badRequest().body(
-                                new ApiResponse<>(ApiResponseStatus.ERROR, e.getMessage(), null))
-                ));
+                .map(data -> ApiResponseUtil.success("User created successfully", data))
+                .onErrorResume(e ->
+                        Mono.just(ApiResponseUtil.error(HttpStatus.BAD_REQUEST, e.getMessage()))
+                );
     }
 
     @GetMapping("/all")
     public Mono<ResponseEntity<ApiResponse<List<UserResponseDto>>>> getAllUsers() {
         return userService.getAllUsers()
                 .collectList()
-                .map(list -> ResponseEntity.ok(
-                        new ApiResponse<>(ApiResponseStatus.SUCCESS, "All users fetched successfully", list)
-                ));
+                .map(list -> ApiResponseUtil.success("All users fetched successfully", list));
     }
 
     @GetMapping("/{id}")
     public Mono<ResponseEntity<ApiResponse<UserResponseDto>>> getUser(@PathVariable Long id) {
         return userService.getUserById(id)
-                .map(data -> ResponseEntity.ok(
-                        new ApiResponse<>(ApiResponseStatus.SUCCESS, "User fetched successfully", data)))
-                .onErrorResume(e -> Mono.just(
-                        ResponseEntity.status(404).body(
-                                new ApiResponse<>(ApiResponseStatus.NOT_FOUND, e.getMessage(), null))
-                ));
+                .map(data -> ApiResponseUtil.success("User fetched successfully", data))
+                .onErrorResume(e ->
+                        Mono.just(ApiResponseUtil.notFound(e.getMessage()))
+                );
     }
 
     @PutMapping("/update/{id}")
     public Mono<ResponseEntity<ApiResponse<UserResponseDto>>> updateUser(@PathVariable Long id,
-                                                                         @RequestBody UserRequestDto dto) {
+                                                                         @Valid @RequestBody UserRequestDto dto) {
         return userService.updateUser(id, dto)
-                .map(data -> ResponseEntity.ok(
-                        new ApiResponse<>(ApiResponseStatus.SUCCESS, "User updated successfully", data)))
+                .map(data -> ApiResponseUtil.success("User updated successfully", data))
                 .onErrorResume(e -> {
-                    String message = e.getMessage();
-                    ApiResponseStatus status = ApiResponseStatus.ERROR;
-                    if ("User not found".equals(message)) {
-                        status = ApiResponseStatus.NOT_FOUND;
+                    if ("User not found".equals(e.getMessage())) {
+                        return Mono.just(ApiResponseUtil.notFound(e.getMessage()));
                     }
-                    return Mono.just(ResponseEntity.badRequest().body(
-                            new ApiResponse<>(status, message, null)
-                    ));
+                    return Mono.just(ApiResponseUtil.error(HttpStatus.BAD_REQUEST, e.getMessage()));
                 });
     }
 
     @DeleteMapping("/delete/{id}")
     public Mono<ResponseEntity<ApiResponse<Void>>> deleteUser(@PathVariable Long id) {
         return userService.deleteUser(id)
-                .then(Mono.just(ResponseEntity.ok(
-                        new ApiResponse<>(ApiResponseStatus.SUCCESS, "User deleted successfully", (Void) null))))
-                .onErrorResume(e -> Mono.just(ResponseEntity.badRequest().body(
-                        new ApiResponse<>(ApiResponseStatus.ERROR, e.getMessage(), null)
-                )));
+                .then(Mono.just(ApiResponseUtil.success("User deleted successfully", (Void) null)))
+                .onErrorResume(e ->
+                        Mono.just(ApiResponseUtil.error(HttpStatus.BAD_REQUEST, e.getMessage()))
+                );
     }
 }

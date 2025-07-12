@@ -1,4 +1,4 @@
-package com.sirhpitar.budget.apis;
+package com.sirhpitar.budget.api_wrappers;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -8,7 +8,6 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @NoArgsConstructor
 public class ApiResponse<T> {
-    private ApiResponseStatus status;
-    private String message;
+    private Meta meta;
     private T data;
 }

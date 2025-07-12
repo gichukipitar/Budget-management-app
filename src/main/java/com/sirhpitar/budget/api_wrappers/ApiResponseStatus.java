@@ -1,4 +1,4 @@
-package com.sirhpitar.budget.apis;
+package com.sirhpitar.budget.api_wrappers;
 
 public enum ApiResponseStatus {
     SUCCESS,

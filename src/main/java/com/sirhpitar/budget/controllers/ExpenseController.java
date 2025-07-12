@@ -1,7 +1,7 @@
 package com.sirhpitar.budget.controllers;
 
-import com.sirhpitar.budget.apis.ApiResponse;
-import com.sirhpitar.budget.apis.ApiResponseStatus;
+import com.sirhpitar.budget.api_wrappers.ApiResponse;
+import com.sirhpitar.budget.api_wrappers.ApiResponseStatus;
 import com.sirhpitar.budget.dtos.request.ExpenseRequestDto;
 import com.sirhpitar.budget.dtos.response.ExpenseResponseDto;
 import com.sirhpitar.budget.service.ExpenseService;
