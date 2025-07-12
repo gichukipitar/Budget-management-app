@@ -1,5 +1,6 @@
 package com.sirhpitar.budget.service.impl;
 
+import com.sirhpitar.budget.dtos.request.CategoryRequestDto;
 import com.sirhpitar.budget.dtos.response.CategoryResponseDto;
 import com.sirhpitar.budget.entities.Budget;
 import com.sirhpitar.budget.entities.Category;
@@ -22,7 +23,7 @@ public class CategoryServiceImpl implements CategoryService {
     private final BudgetRepository budgetRepository;
 
     @Override
-    public Mono<CategoryResponseDto> createCategory(CategoryResponseDto dto) {
+    public Mono<CategoryResponseDto> createCategory(CategoryRequestDto dto) {
         return Mono.fromCallable(() -> budgetRepository.findById(dto.getBudgetId()))
                 .subscribeOn(Schedulers.boundedElastic())
                 .flatMap(optionalBudget -> {
@@ -42,12 +43,46 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     @Override
-    public Mono<CategoryResponseDto> updateCategory(Long id, CategoryResponseDto dto) {
-        return null;
+    public Mono<CategoryResponseDto> updateCategory(Long id, CategoryRequestDto dto) {
+        return Mono.fromCallable(() -> categoryRepository.findById(id))
+                .subscribeOn(Schedulers.boundedElastic())
+                .flatMap(optionalCategory -> {
+                    if (optionalCategory.isEmpty()) {
+                        return Mono.error(new IllegalArgumentException("Category not found"));
+                    }
+                    Category category = optionalCategory.get();
+                    category.setName(dto.getName());
+                    category.setAllocatedAmount(dto.getAllocatedAmount());
+                    category.setRemainingAmount(dto.getRemainingAmount());
+
+                    // Optionally update budget if provided and different
+                    if (dto.getBudgetId() != null && !dto.getBudgetId().equals(category.getBudget().getId())) {
+                        return Mono.fromCallable(() -> budgetRepository.findById(dto.getBudgetId()))
+                                .subscribeOn(Schedulers.boundedElastic())
+                                .flatMap(optionalBudget -> {
+                                    if (optionalBudget.isEmpty()) {
+                                        return Mono.error(new IllegalArgumentException("Budget not found"));
+                                    }
+                                    category.setBudget(optionalBudget.get());
+                                    return Mono.fromCallable(() -> categoryRepository.save(category))
+                                            .subscribeOn(Schedulers.boundedElastic())
+                                            .map(categoryMapper::toDto);
+                                });
+                    }
+                    return Mono.fromCallable(() -> categoryRepository.save(category))
+                            .subscribeOn(Schedulers.boundedElastic())
+                            .map(categoryMapper::toDto);
+                });
     }
 
     @Override
     public Mono<Void> deleteCategory(Long id) {
-        return null;
+        return Mono.fromCallable(() -> {
+            if (!categoryRepository.existsById(id)) {
+                throw new IllegalArgumentException("Category not found");
+            }
+            categoryRepository.deleteById(id);
+            return null;
+        }).subscribeOn(Schedulers.boundedElastic()).then();
     }
 }
