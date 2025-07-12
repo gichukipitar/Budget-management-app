@@ -21,7 +21,7 @@ public class CategoryController {
     private final CategoryService categoryService;
 
     @PostMapping("/create")
-    public Mono<ResponseEntity<ApiResponse<CategoryResponseDto>>> createCategory(CategoryRequestDto dto) {
+    public Mono<ResponseEntity<ApiResponse<CategoryResponseDto>>> createCategory(@RequestBody CategoryRequestDto dto) {
         return categoryService.createCategory(dto)
                 .map(data -> ResponseEntity.ok(
                         new ApiResponse<>(ApiResponseStatus.SUCCESS, "Category created successfully", data)))
