@@ -6,6 +6,7 @@ import com.sirhpitar.budget.entities.Budget;
 import com.sirhpitar.budget.entities.Category;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
+import org.mapstruct.MappingTarget;
 
 @Mapper(componentModel = "spring")
 public interface CategoryMapper {
@@ -20,4 +21,6 @@ public interface CategoryMapper {
         category.setBudget(budget);
         return category;
     }
+
+    void updateEntity(@MappingTarget Category category, CategoryRequestDto dto);
 }

@@ -11,6 +11,7 @@ import com.sirhpitar.budget.service.CategoryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
@@ -31,11 +32,7 @@ public class CategoryServiceImpl implements CategoryService {
                         return Mono.error(new IllegalArgumentException("Budget not found"));
                     }
                     Budget budget = optionalBudget.get();
-                    Category category = new Category();
-                    category.setName(dto.getName());
-                    category.setAllocatedAmount(dto.getAllocatedAmount());
-                    category.setRemainingAmount(dto.getRemainingAmount());
-                    category.setBudget(budget);
+                    Category category = categoryMapper.toEntity(dto, budget);
                     return Mono.fromCallable(() -> categoryRepository.save(category))
                             .subscribeOn(Schedulers.boundedElastic())
                             .map(categoryMapper::toDto);
@@ -51,9 +48,8 @@ public class CategoryServiceImpl implements CategoryService {
                         return Mono.error(new IllegalArgumentException("Category not found"));
                     }
                     Category category = optionalCategory.get();
-                    category.setName(dto.getName());
-                    category.setAllocatedAmount(dto.getAllocatedAmount());
-                    category.setRemainingAmount(dto.getRemainingAmount());
+
+                    categoryMapper.updateEntity(category, dto);
 
                     // Optionally update budget if provided and different
                     if (dto.getBudgetId() != null && !dto.getBudgetId().equals(category.getBudget().getId())) {
@@ -75,6 +71,7 @@ public class CategoryServiceImpl implements CategoryService {
                 });
     }
 
+
     @Override
     public Mono<Void> deleteCategory(Long id) {
         return Mono.fromCallable(() -> {
@@ -84,5 +81,22 @@ public class CategoryServiceImpl implements CategoryService {
             categoryRepository.deleteById(id);
             return null;
         }).subscribeOn(Schedulers.boundedElastic()).then();
+    }
+
+    @Override
+    public Mono<CategoryResponseDto> getCategoryById(Long id) {
+        return Mono.fromCallable(() -> categoryRepository.findById(id))
+                .subscribeOn(Schedulers.boundedElastic())
+                .flatMap(optionalCategory -> optionalCategory
+                        .map(category -> Mono.just(categoryMapper.toDto(category)))
+                        .orElseGet(Mono::empty));
+    }
+
+    @Override
+    public Flux<CategoryResponseDto> getAllCategories() {
+        return Mono.fromCallable(categoryRepository::findAll)
+                .subscribeOn(Schedulers.boundedElastic())
+                .flatMapMany(Flux::fromIterable)
+                .map(categoryMapper::toDto);
     }
 }
