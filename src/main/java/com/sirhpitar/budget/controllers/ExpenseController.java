@@ -1,7 +1,8 @@
 package com.sirhpitar.budget.controllers;
 
+
 import com.sirhpitar.budget.api_wrappers.ApiResponse;
-import com.sirhpitar.budget.api_wrappers.ApiResponseStatus;
+import com.sirhpitar.budget.api_wrappers.ApiResponseUtil;
 import com.sirhpitar.budget.dtos.request.ExpenseRequestDto;
 import com.sirhpitar.budget.dtos.response.ExpenseResponseDto;
 import com.sirhpitar.budget.service.ExpenseService;
@@ -24,55 +25,35 @@ public class ExpenseController {
     @PostMapping
     public Mono<ResponseEntity<ApiResponse<ExpenseResponseDto>>> createExpense(@RequestBody ExpenseRequestDto requestDto) {
         return expenseService.createExpense(requestDto)
-                .map(expense -> ResponseEntity.status(HttpStatus.CREATED)
-                        .body(new ApiResponse<>(ApiResponseStatus.SUCCESS, "Expense created successfully", expense)))
-                .onErrorResume(e -> Mono.just(
-                        ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                                .body(new ApiResponse<>(ApiResponseStatus.ERROR, "Failed to create expense: " + e.getMessage(), null))
-                ));
+                .map(expense -> ApiResponseUtil.created("Expense created successfully", expense))
+                .onErrorResume(e -> Mono.just(ApiResponseUtil.error(HttpStatus.BAD_REQUEST, "Failed to create expense: " + e.getMessage())));
     }
 
     @GetMapping("/{id}")
     public Mono<ResponseEntity<ApiResponse<ExpenseResponseDto>>> getExpenseById(@PathVariable Long id) {
         return expenseService.getExpenseById(id)
-                .map(expense -> ResponseEntity.ok(
-                        new ApiResponse<>(ApiResponseStatus.SUCCESS, "Expense retrieved successfully", expense)))
-                .onErrorResume(e -> Mono.just(
-                        ResponseEntity.status(HttpStatus.NOT_FOUND)
-                                .body(new ApiResponse<>(ApiResponseStatus.NOT_FOUND, e.getMessage(), null)
-                                )
-                ));
-
+                .map(expense -> ApiResponseUtil.success("Expense retrieved successfully", expense))
+                .switchIfEmpty(Mono.just(ApiResponseUtil.notFound("Expense not found")));
     }
 
     @PutMapping("/{id}")
     public Mono<ResponseEntity<ApiResponse<ExpenseResponseDto>>> updateExpense(@PathVariable Long id, @RequestBody ExpenseRequestDto requestDto) {
         return expenseService.updateExpense(id, requestDto)
-                .map(expense -> ResponseEntity.ok(
-                        new ApiResponse<>(ApiResponseStatus.SUCCESS, "Expense updated successfully", expense)))
-                .onErrorResume(e -> Mono.just(
-                        ResponseEntity.status(HttpStatus.NOT_FOUND)
-                                .body(new ApiResponse<>(ApiResponseStatus.NOT_FOUND, e.getMessage(), null))
-                ));
+                .map(expense -> ApiResponseUtil.success("Expense updated successfully", expense))
+                .onErrorResume(e -> Mono.just(ApiResponseUtil.notFound(e.getMessage())));
     }
 
     @GetMapping
     public Mono<ResponseEntity<ApiResponse<List<ExpenseResponseDto>>>> getAllExpenses() {
         return expenseService.getAllExpenses()
                 .collectList()
-                .map(expenses -> ResponseEntity.ok(
-                        new ApiResponse<>(ApiResponseStatus.SUCCESS, "All expenses retrieved successfully", expenses)
-                ));
+                .map(expenses -> ApiResponseUtil.success("All expenses retrieved successfully", expenses));
     }
 
     @DeleteMapping("/{id}")
-    public Mono<ResponseEntity<ApiResponse<Object>>> deleteExpense(@PathVariable Long id) {
+    public Mono<ResponseEntity<ApiResponse<Void>>> deleteExpense(@PathVariable Long id) {
         return expenseService.deleteExpense(id)
-                .thenReturn(ResponseEntity.ok(
-                        new ApiResponse<>(ApiResponseStatus.SUCCESS, "Expense deleted successfully", null)))
-                .onErrorResume(e -> Mono.just(
-                        ResponseEntity.status(HttpStatus.NOT_FOUND)
-                                .body(new ApiResponse<>(ApiResponseStatus.NOT_FOUND, e.getMessage(), null))
-                ));
+                .then(Mono.just(ApiResponseUtil.success("Expense deleted successfully", (Void) null)))
+                .onErrorResume(e -> Mono.just(ApiResponseUtil.notFound(e.getMessage())));
     }
 }

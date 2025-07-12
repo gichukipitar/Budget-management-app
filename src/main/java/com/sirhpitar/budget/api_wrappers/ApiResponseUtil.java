@@ -42,4 +42,8 @@ public class ApiResponseUtil {
     public static <T> ResponseEntity<ApiResponse<T>> validationError(String message) {
         return build(HttpStatus.BAD_REQUEST, ApiResponseStatus.VALIDATION_ERROR, message, null);
     }
+
+    public static <T> ResponseEntity<ApiResponse<T>> created(String message, T data) {
+        return build(HttpStatus.CREATED, ApiResponseStatus.SUCCESS, message, data);
+    }
 }
