@@ -3,6 +3,7 @@ package com.sirhpitar.budget.service.impl;
 import com.sirhpitar.budget.dtos.request.UserRequestDto;
 import com.sirhpitar.budget.dtos.response.UserResponseDto;
 import com.sirhpitar.budget.entities.User;
+import com.sirhpitar.budget.exceptions.NotFoundException;
 import com.sirhpitar.budget.mappers.UserMapper;
 import com.sirhpitar.budget.repository.UserRepository;
 import com.sirhpitar.budget.service.UserService;
@@ -40,7 +41,7 @@ public class UserServiceImpl implements UserService {
         return Mono.fromCallable(() ->
                 userRepository.findById(id)
                         .map(userMapper::toDto)
-                        .orElseThrow(() -> new IllegalArgumentException("User not found"))
+                        .orElseThrow(() -> new NotFoundException("User not found"))
         ).subscribeOn(Schedulers.boundedElastic());
     }
 
@@ -48,7 +49,7 @@ public class UserServiceImpl implements UserService {
     public Mono<UserResponseDto> updateUser(Long id, UserRequestDto dto) {
         return Mono.fromCallable(() -> {
             User user = userRepository.findById(id)
-                    .orElseThrow(() -> new IllegalArgumentException("User not found"));
+                    .orElseThrow(() -> new NotFoundException("User not found"));
 
             User updatedUser = userMapper.toEntity(dto);
             updatedUser.setId(user.getId());
@@ -62,7 +63,7 @@ public class UserServiceImpl implements UserService {
     public Mono<Void> deleteUser(Long id) {
         return Mono.fromCallable(() -> {
             if (!userRepository.existsById(id)) {
-                throw new IllegalArgumentException("User not found");
+                throw new NotFoundException("User not found");
             }
             userRepository.deleteById(id);
             return null;
