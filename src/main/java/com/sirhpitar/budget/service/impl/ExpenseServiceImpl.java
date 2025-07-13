@@ -5,6 +5,7 @@ import com.sirhpitar.budget.dtos.response.ExpenseResponseDto;
 import com.sirhpitar.budget.entities.Category;
 import com.sirhpitar.budget.entities.Expense;
 import com.sirhpitar.budget.entities.User;
+import com.sirhpitar.budget.exceptions.NotFoundException;
 import com.sirhpitar.budget.mappers.ExpenseMapper;
 import com.sirhpitar.budget.repository.CategoryRepository;
 import com.sirhpitar.budget.repository.ExpenseRepository;
@@ -31,9 +32,9 @@ public class ExpenseServiceImpl implements ExpenseService {
         log.info("Creating new expense for userId:{}, categoryId:{}", requestDto.getUserId(), requestDto.getCategoryId());
         return Mono.fromCallable(() -> {
                     Category category = categoryRepository.findById(requestDto.getCategoryId())
-                            .orElseThrow(() -> new IllegalArgumentException("Category not found: " + requestDto.getCategoryId()));
+                            .orElseThrow(() -> new NotFoundException("Category not found: " + requestDto.getCategoryId()));
                     User user = userRepository.findById(requestDto.getUserId())
-                            .orElseThrow(() -> new IllegalArgumentException("User not found: " + requestDto.getUserId()));
+                            .orElseThrow(() -> new NotFoundException("User not found: " + requestDto.getUserId()));
                     Expense expense = expenseMapper.toEntity(requestDto, category, user);
                     Expense saved = expenseRepository.save(expense);
                     log.info("Expense created with id: {}", saved.getId());
@@ -48,12 +49,12 @@ public class ExpenseServiceImpl implements ExpenseService {
         log.info("Updating expense with id: {}", id);
         return Mono.fromCallable(() -> {
                     Expense existingExpense = expenseRepository.findById(id)
-                            .orElseThrow(() -> new IllegalArgumentException("Expense not found: " + id));
+                            .orElseThrow(() -> new NotFoundException("Expense not found: " + id));
 
                     Category category = categoryRepository.findById(dto.getCategoryId())
-                            .orElseThrow(() -> new IllegalArgumentException("Category not found: " + dto.getCategoryId()));
+                            .orElseThrow(() -> new NotFoundException("Category not found: " + dto.getCategoryId()));
                     User user = userRepository.findById(dto.getUserId())
-                            .orElseThrow(() -> new IllegalArgumentException("User not found: " + dto.getUserId()));
+                            .orElseThrow(() -> new NotFoundException("User not found: " + dto.getUserId()));
 
                     existingExpense.setCategory(category);
                     existingExpense.setUser(user);
@@ -75,7 +76,7 @@ public class ExpenseServiceImpl implements ExpenseService {
         return Mono.fromCallable(() ->
                         expenseRepository.findById(id)
                                 .map(expenseMapper::toDto)
-                                .orElseThrow(() -> new IllegalArgumentException("Expense not found: " + id))
+                                .orElseThrow(() -> new NotFoundException("Expense not found: " + id))
                 )
                 .doOnError(e -> log.error("Error fetching expense with id {}: {}", id, e.getMessage()))
                 .subscribeOn(Schedulers.boundedElastic());
@@ -99,7 +100,7 @@ public class ExpenseServiceImpl implements ExpenseService {
         log.info("Deleting expense with id: {}", id);
         return Mono.fromCallable(() -> {
                     if (!expenseRepository.existsById(id)) {
-                        throw new IllegalArgumentException("Expense not found: " + id);
+                        throw new NotFoundException("Expense not found: " + id);
                     }
                     expenseRepository.deleteById(id);
                     log.info("Expense deleted with id: {}", id);

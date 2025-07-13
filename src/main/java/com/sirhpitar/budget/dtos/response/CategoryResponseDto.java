@@ -12,7 +12,7 @@ import lombok.Setter;
 public class CategoryResponseDto {
     private Long id;
     private Long budgetId;
-    private String name;
+    private String categoryName;
     private Double allocatedAmount;
     private Double remainingAmount;
 }

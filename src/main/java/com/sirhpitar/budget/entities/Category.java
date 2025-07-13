@@ -7,16 +7,19 @@ import lombok.Setter;
 import java.util.List;
 
 @Entity
-@Table(name = "categories")
+@Table(
+        name = "categories",
+        uniqueConstraints = @UniqueConstraint(columnNames = {"categoryName", "budget_id"})
+)
 @Setter
 @Getter
 public class Category {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-    
+
     @Column(nullable = false)
-    private String name;
+    private String categoryName;
 
     @ManyToOne
     @JoinColumn(name = "budget_id", nullable = false)

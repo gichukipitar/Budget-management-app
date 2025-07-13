@@ -14,6 +14,7 @@ public interface CategoryMapper {
     Category toEntity(CategoryRequestDto dto);
 
     @Mapping(target = "budgetId", source = "budget.id")
+    @Mapping(target = "categoryName", source = "categoryName")
     CategoryResponseDto toDto(Category category);
 
     default Category toEntity(CategoryRequestDto dto, Budget budget) {

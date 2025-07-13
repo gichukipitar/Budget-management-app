@@ -4,6 +4,7 @@ import com.sirhpitar.budget.dtos.request.BudgetRequestDto;
 import com.sirhpitar.budget.dtos.response.BudgetResponseDto;
 import com.sirhpitar.budget.entities.Budget;
 import com.sirhpitar.budget.entities.User;
+import com.sirhpitar.budget.exceptions.NotFoundException;
 import com.sirhpitar.budget.mappers.BudgetMapper;
 import com.sirhpitar.budget.repository.BudgetRepository;
 import com.sirhpitar.budget.repository.UserRepository;
@@ -31,7 +32,7 @@ public class BudgetServiceImpl implements BudgetService {
                 .subscribeOn(Schedulers.boundedElastic())
                 .flatMap(optionalUser -> {
                     if (optionalUser.isEmpty()) {
-                        return Mono.error(new IllegalArgumentException("User not found"));
+                        return Mono.error(new NotFoundException("User not found"));
                     }
                     User user = optionalUser.get();
 
@@ -63,7 +64,7 @@ public class BudgetServiceImpl implements BudgetService {
                 .subscribeOn(Schedulers.boundedElastic())
                 .flatMap(optionalBudget -> {
                     if (optionalBudget.isEmpty()) {
-                        return Mono.error(new IllegalArgumentException("Budget not found"));
+                        return Mono.error(new NotFoundException("Budget not found"));
                     }
 
                     Budget budget = optionalBudget.get();
@@ -76,7 +77,7 @@ public class BudgetServiceImpl implements BudgetService {
                                 .subscribeOn(Schedulers.boundedElastic())
                                 .flatMap(optionalUser -> {
                                     if (optionalUser.isEmpty()) {
-                                        return Mono.error(new IllegalArgumentException("User not found"));
+                                        return Mono.error(new NotFoundException("User not found"));
                                     }
                                     budget.setUser(optionalUser.get());
                                     return Mono.fromCallable(() -> budgetRepository.save(budget))
@@ -95,7 +96,7 @@ public class BudgetServiceImpl implements BudgetService {
     public Mono<Void> deleteBudget(Long id) {
         return Mono.fromCallable(() -> {
             if (!budgetRepository.existsById(id)) {
-                throw new IllegalArgumentException("Budget not found");
+                throw new NotFoundException("Budget not found");
             }
             budgetRepository.deleteById(id);
             return null;

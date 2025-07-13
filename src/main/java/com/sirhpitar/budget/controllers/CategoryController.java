@@ -1,14 +1,13 @@
 package com.sirhpitar.budget.controllers;
 
-
 import com.sirhpitar.budget.api_wrappers.ApiResponse;
 import com.sirhpitar.budget.api_wrappers.ApiResponseUtil;
 import com.sirhpitar.budget.dtos.request.CategoryRequestDto;
 import com.sirhpitar.budget.dtos.response.CategoryResponseDto;
 import com.sirhpitar.budget.service.CategoryService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
@@ -23,30 +22,22 @@ public class CategoryController {
     private final CategoryService categoryService;
 
     @PostMapping("/create")
-    public Mono<ResponseEntity<ApiResponse<CategoryResponseDto>>> createCategory(@RequestBody CategoryRequestDto dto) {
+    public Mono<ResponseEntity<ApiResponse<CategoryResponseDto>>> createCategory(@Valid @RequestBody CategoryRequestDto dto) {
         return categoryService.createCategory(dto)
-                .map(data -> ApiResponseUtil.success("Category created successfully", data))
-                .onErrorResume(e -> Mono.just(ApiResponseUtil.error(HttpStatus.BAD_REQUEST, e.getMessage())));
+                .map(data -> ApiResponseUtil.success("Category created successfully", data));
     }
 
     @PutMapping("/update/{id}")
     public Mono<ResponseEntity<ApiResponse<CategoryResponseDto>>> updateCategory(
-            @PathVariable Long id, @RequestBody CategoryRequestDto dto) {
+            @PathVariable Long id, @Valid @RequestBody CategoryRequestDto dto) {
         return categoryService.updateCategory(id, dto)
-                .map(data -> ApiResponseUtil.success("Category updated successfully", data))
-                .onErrorResume(e -> {
-                    if ("Category not found".equals(e.getMessage())) {
-                        return Mono.just(ApiResponseUtil.notFound(e.getMessage()));
-                    }
-                    return Mono.just(ApiResponseUtil.error(HttpStatus.BAD_REQUEST, e.getMessage()));
-                });
+                .map(data -> ApiResponseUtil.success("Category updated successfully", data));
     }
 
     @GetMapping("/{id}")
     public Mono<ResponseEntity<ApiResponse<CategoryResponseDto>>> getCategoryById(@PathVariable Long id) {
         return categoryService.getCategoryById(id)
-                .map(data -> ApiResponseUtil.success("Category fetched successfully", data))
-                .switchIfEmpty(Mono.just(ApiResponseUtil.notFound("Category not found")));
+                .map(data -> ApiResponseUtil.success("Category fetched successfully", data));
     }
 
     @GetMapping
@@ -59,7 +50,6 @@ public class CategoryController {
     @DeleteMapping("/delete/{id}")
     public Mono<ResponseEntity<ApiResponse<Void>>> deleteCategory(@PathVariable Long id) {
         return categoryService.deleteCategory(id)
-                .then(Mono.just(ApiResponseUtil.success("Category deleted successfully", (Void) null)))
-                .onErrorResume(e -> Mono.just(ApiResponseUtil.error(HttpStatus.BAD_REQUEST, e.getMessage())));
+                .then(Mono.just(ApiResponseUtil.success("Category deleted successfully", null)));
     }
 }
