@@ -18,6 +18,8 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+import java.time.LocalDate;
+
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -30,6 +32,10 @@ public class ExpenseServiceImpl implements ExpenseService {
     @Override
     public Mono<ExpenseResponseDto> createExpense(ExpenseRequestDto requestDto) {
         log.info("Creating new expense for userId:{}, categoryId:{}", requestDto.getUserId(), requestDto.getCategoryId());
+
+        if (requestDto.getDate() == null) {
+            requestDto.setDate(LocalDate.now());
+        }
         return Mono.fromCallable(() -> {
                     Category category = categoryRepository.findById(requestDto.getCategoryId())
                             .orElseThrow(() -> new NotFoundException("Category not found: " + requestDto.getCategoryId()));

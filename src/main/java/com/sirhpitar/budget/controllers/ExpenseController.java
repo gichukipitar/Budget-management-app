@@ -5,6 +5,7 @@ import com.sirhpitar.budget.api_wrappers.ApiResponseUtil;
 import com.sirhpitar.budget.dtos.request.ExpenseRequestDto;
 import com.sirhpitar.budget.dtos.response.ExpenseResponseDto;
 import com.sirhpitar.budget.service.ExpenseService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -21,7 +22,7 @@ public class ExpenseController {
     private final ExpenseService expenseService;
 
     @PostMapping
-    public Mono<ResponseEntity<ApiResponse<ExpenseResponseDto>>> createExpense(@RequestBody ExpenseRequestDto requestDto) {
+    public Mono<ResponseEntity<ApiResponse<ExpenseResponseDto>>> createExpense(@Valid @RequestBody ExpenseRequestDto requestDto) {
         return expenseService.createExpense(requestDto)
                 .map(expense -> ApiResponseUtil.created("Expense created successfully", expense));
 
@@ -35,7 +36,7 @@ public class ExpenseController {
     }
 
     @PutMapping("/{id}")
-    public Mono<ResponseEntity<ApiResponse<ExpenseResponseDto>>> updateExpense(@PathVariable Long id, @RequestBody ExpenseRequestDto requestDto) {
+    public Mono<ResponseEntity<ApiResponse<ExpenseResponseDto>>> updateExpense(@PathVariable Long id, @Valid @RequestBody ExpenseRequestDto requestDto) {
         return expenseService.updateExpense(id, requestDto)
                 .map(expense -> ApiResponseUtil.success("Expense updated successfully", expense));
     }
