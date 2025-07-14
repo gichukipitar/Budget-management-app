@@ -5,9 +5,10 @@ import lombok.Getter;
 import lombok.Setter;
 
 @Entity
-@Table(name = "notifications")
+
 @Setter
 @Getter
+@Table(name = "notifications")
 public class Notification extends Auditable {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -18,6 +19,5 @@ public class Notification extends Auditable {
     private User user;
 
     private String message;
-    
     private boolean read = false;
 }

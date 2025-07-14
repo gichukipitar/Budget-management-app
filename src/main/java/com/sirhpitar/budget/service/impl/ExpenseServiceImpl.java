@@ -2,12 +2,12 @@ package com.sirhpitar.budget.service.impl;
 
 import com.sirhpitar.budget.dtos.request.ExpenseRequestDto;
 import com.sirhpitar.budget.dtos.response.ExpenseResponseDto;
-import com.sirhpitar.budget.entities.Category;
+import com.sirhpitar.budget.entities.ExpenseCategory;
 import com.sirhpitar.budget.entities.Expense;
 import com.sirhpitar.budget.entities.User;
 import com.sirhpitar.budget.exceptions.NotFoundException;
 import com.sirhpitar.budget.mappers.ExpenseMapper;
-import com.sirhpitar.budget.repository.CategoryRepository;
+import com.sirhpitar.budget.repository.ExpenseCategoryRepository;
 import com.sirhpitar.budget.repository.ExpenseRepository;
 import com.sirhpitar.budget.repository.UserRepository;
 import com.sirhpitar.budget.service.ExpenseService;
@@ -25,94 +25,88 @@ import java.time.LocalDate;
 @Slf4j
 public class ExpenseServiceImpl implements ExpenseService {
     private final ExpenseRepository expenseRepository;
-    private final CategoryRepository categoryRepository;
+    private final ExpenseCategoryRepository categoryRepository;
     private final ExpenseMapper expenseMapper;
     private final UserRepository userRepository;
 
     @Override
     public Mono<ExpenseResponseDto> createExpense(ExpenseRequestDto requestDto) {
-        log.info("Creating new expense for userId:{}, categoryId:{}", requestDto.getUserId(), requestDto.getCategoryId());
-
-        if (requestDto.getDate() == null) {
-            requestDto.setDate(LocalDate.now());
-        }
-        return Mono.fromCallable(() -> {
-                    Category category = categoryRepository.findById(requestDto.getCategoryId())
-                            .orElseThrow(() -> new NotFoundException("Category not found: " + requestDto.getCategoryId()));
-                    User user = userRepository.findById(requestDto.getUserId())
-                            .orElseThrow(() -> new NotFoundException("User not found: " + requestDto.getUserId()));
-                    Expense expense = expenseMapper.toEntity(requestDto, category, user);
-                    Expense saved = expenseRepository.save(expense);
-                    log.info("Expense created with id: {}", saved.getId());
-                    return expenseMapper.toDto(saved);
-                })
-                .doOnError(e -> log.error("Error creating expense: {}", e.getMessage()))
+        return Mono.fromCallable(() -> createExpenseInternal(requestDto))
                 .subscribeOn(Schedulers.boundedElastic());
     }
 
     @Override
     public Mono<ExpenseResponseDto> updateExpense(Long id, ExpenseRequestDto dto) {
-        log.info("Updating expense with id: {}", id);
-        return Mono.fromCallable(() -> {
-                    Expense existingExpense = expenseRepository.findById(id)
-                            .orElseThrow(() -> new NotFoundException("Expense not found: " + id));
-
-                    Category category = categoryRepository.findById(dto.getCategoryId())
-                            .orElseThrow(() -> new NotFoundException("Category not found: " + dto.getCategoryId()));
-                    User user = userRepository.findById(dto.getUserId())
-                            .orElseThrow(() -> new NotFoundException("User not found: " + dto.getUserId()));
-
-                    existingExpense.setCategory(category);
-                    existingExpense.setUser(user);
-                    existingExpense.setAmount(dto.getAmount());
-                    existingExpense.setDescription(dto.getDescription());
-                    existingExpense.setDate(dto.getDate());
-
-                    Expense updatedExpense = expenseRepository.save(existingExpense);
-                    log.info("Expense updated with id: {}", updatedExpense.getId());
-                    return expenseMapper.toDto(updatedExpense);
-                })
-                .doOnError(e -> log.error("Error updating expense with id {}: {}", id, e.getMessage()))
+        return Mono.fromCallable(() -> updateExpenseInternal(id, dto))
                 .subscribeOn(Schedulers.boundedElastic());
     }
 
     @Override
     public Mono<ExpenseResponseDto> getExpenseById(Long id) {
-        log.info("Fetching expense with id: {}", id);
-        return Mono.fromCallable(() ->
-                        expenseRepository.findById(id)
-                                .map(expenseMapper::toDto)
-                                .orElseThrow(() -> new NotFoundException("Expense not found: " + id))
-                )
-                .doOnError(e -> log.error("Error fetching expense with id {}: {}", id, e.getMessage()))
+        return Mono.fromCallable(() -> getExpenseByIdInternal(id))
                 .subscribeOn(Schedulers.boundedElastic());
     }
 
     @Override
     public Flux<ExpenseResponseDto> getAllExpenses() {
-        log.info("Fetching all expenses");
         return Mono.fromCallable(expenseRepository::findAll)
                 .subscribeOn(Schedulers.boundedElastic())
-                .flatMapMany(expenses -> {
-                    log.info("Expenses found: {}", expenses.size());
-                    return Flux.fromIterable(expenses)
-                            .map(expenseMapper::toDto);
-                })
-                .doOnError(e -> log.error("Error fetching all expenses: {}", e.getMessage()));
+                .flatMapMany(expenses -> Flux.fromIterable(expenses)
+                        .map(expenseMapper::toDto));
     }
 
     @Override
     public Mono<Void> deleteExpense(Long id) {
-        log.info("Deleting expense with id: {}", id);
-        return Mono.fromCallable(() -> {
-                    if (!expenseRepository.existsById(id)) {
-                        throw new NotFoundException("Expense not found: " + id);
-                    }
-                    expenseRepository.deleteById(id);
-                    log.info("Expense deleted with id: {}", id);
-                    return null;
-                }).subscribeOn(Schedulers.boundedElastic())
-                .doOnError(e -> log.error("Error deleting expense with id {}: {}", id, e.getMessage()))
-                .then();
+        return Mono.fromRunnable(() -> deleteExpenseInternal(id))
+                .subscribeOn(Schedulers.boundedElastic()).then();
+    }
+
+    // --- Private helper methods ---
+
+    private ExpenseResponseDto createExpenseInternal(ExpenseRequestDto requestDto) {
+        if (requestDto.getTransactionDate() == null) {
+            requestDto.setTransactionDate(LocalDate.now());
+        }
+        ExpenseCategory category = getCategoryOrThrow(requestDto.getExpenseCategoryId());
+        User user = getUserOrThrow(requestDto.getUserId());
+        Expense expense = expenseMapper.toEntity(requestDto, category, user);
+        Expense saved = expenseRepository.save(expense);
+        return expenseMapper.toDto(saved);
+    }
+
+    private ExpenseResponseDto updateExpenseInternal(Long id, ExpenseRequestDto dto) {
+        Expense existingExpense = getExpenseOrThrow(id);
+        ExpenseCategory category = dto.getExpenseCategoryId() != null ? getCategoryOrThrow(dto.getExpenseCategoryId()) : null;
+        User user = dto.getUserId() != null ? getUserOrThrow(dto.getUserId()) : null;
+        expenseMapper.updateExpense(dto, existingExpense, category, user);
+        Expense updated = expenseRepository.save(existingExpense);
+        return expenseMapper.toDto(updated);
+    }
+
+    private ExpenseResponseDto getExpenseByIdInternal(Long id) {
+        Expense expense = getExpenseOrThrow(id);
+        return expenseMapper.toDto(expense);
+    }
+
+    private void deleteExpenseInternal(Long id) {
+        if (!expenseRepository.existsById(id)) {
+            throw new NotFoundException("Expense not found: " + id);
+        }
+        expenseRepository.deleteById(id);
+    }
+
+    private ExpenseCategory getCategoryOrThrow(Long categoryId) {
+        return categoryRepository.findById(categoryId)
+                .orElseThrow(() -> new NotFoundException("Category not found: " + categoryId));
+    }
+
+    private User getUserOrThrow(Long userId) {
+        return userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("User not found: " + userId));
+    }
+
+    private Expense getExpenseOrThrow(Long id) {
+        return expenseRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException("Expense not found: " + id));
     }
 }

@@ -10,18 +10,28 @@ import java.util.List;
 @Entity
 @Setter
 @Getter
-@Table(name = "budget")
+@Table(
+        name = "budget",
+        uniqueConstraints = @UniqueConstraint(
+                columnNames = {"name", "periodType", "startDate", "endDate", "user_id"}
+        )
+)
 public class Budget extends Auditable {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    private LocalDate budgetDate;
-
     @ManyToOne
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
+    private LocalDate startDate;
+    private LocalDate endDate;
+    private String name;
+    private String periodType; // "monthly", "yearly", etc.
+    private Double totalAmount;
+    private boolean active;
+
     @OneToMany(mappedBy = "budget", cascade = CascadeType.ALL, orphanRemoval = true)
-    private List<Category> categories;
+    private List<BudgetCategory> budgetCategories;
 }

@@ -6,6 +6,7 @@ import com.sirhpitar.budget.entities.Budget;
 import com.sirhpitar.budget.entities.User;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
+import org.mapstruct.MappingTarget;
 
 @Mapper(componentModel = "spring")
 public interface BudgetMapper {
@@ -22,4 +23,7 @@ public interface BudgetMapper {
         budget.setUser(user);
         return budget;
     }
+
+    @Mapping(target = "id", ignore = true)
+    void updateBudgetFromDto(BudgetRequestDto dto, @MappingTarget Budget budget);
 }

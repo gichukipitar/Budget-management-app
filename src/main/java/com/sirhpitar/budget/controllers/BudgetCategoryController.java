@@ -2,9 +2,9 @@ package com.sirhpitar.budget.controllers;
 
 import com.sirhpitar.budget.api_wrappers.ApiResponse;
 import com.sirhpitar.budget.api_wrappers.ApiResponseUtil;
-import com.sirhpitar.budget.dtos.request.CategoryRequestDto;
-import com.sirhpitar.budget.dtos.response.CategoryResponseDto;
-import com.sirhpitar.budget.service.CategoryService;
+import com.sirhpitar.budget.dtos.request.BudgetCategoryRequestDto;
+import com.sirhpitar.budget.dtos.response.BudgetCategoryResponseDto;
+import com.sirhpitar.budget.service.BudgetCategoryService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,30 +18,30 @@ import java.util.List;
 @RequestMapping("/api/categories")
 @RequiredArgsConstructor
 @Slf4j
-public class CategoryController {
-    private final CategoryService categoryService;
+public class BudgetCategoryController {
+    private final BudgetCategoryService categoryService;
 
     @PostMapping("/create")
-    public Mono<ResponseEntity<ApiResponse<CategoryResponseDto>>> createCategory(@Valid @RequestBody CategoryRequestDto dto) {
+    public Mono<ResponseEntity<ApiResponse<BudgetCategoryResponseDto>>> createCategory(@Valid @RequestBody BudgetCategoryRequestDto dto) {
         return categoryService.createCategory(dto)
                 .map(data -> ApiResponseUtil.success("Category created successfully", data));
     }
 
     @PutMapping("/update/{id}")
-    public Mono<ResponseEntity<ApiResponse<CategoryResponseDto>>> updateCategory(
-            @PathVariable Long id, @Valid @RequestBody CategoryRequestDto dto) {
+    public Mono<ResponseEntity<ApiResponse<BudgetCategoryResponseDto>>> updateCategory(
+            @PathVariable Long id, @Valid @RequestBody BudgetCategoryRequestDto dto) {
         return categoryService.updateCategory(id, dto)
                 .map(data -> ApiResponseUtil.success("Category updated successfully", data));
     }
 
     @GetMapping("/{id}")
-    public Mono<ResponseEntity<ApiResponse<CategoryResponseDto>>> getCategoryById(@PathVariable Long id) {
+    public Mono<ResponseEntity<ApiResponse<BudgetCategoryResponseDto>>> getCategoryById(@PathVariable Long id) {
         return categoryService.getCategoryById(id)
                 .map(data -> ApiResponseUtil.success("Category fetched successfully", data));
     }
 
     @GetMapping
-    public Mono<ResponseEntity<ApiResponse<List<CategoryResponseDto>>>> getAllCategories() {
+    public Mono<ResponseEntity<ApiResponse<List<BudgetCategoryResponseDto>>>> getAllCategories() {
         return categoryService.getAllCategories()
                 .collectList()
                 .map(list -> ApiResponseUtil.success("Categories fetched successfully", list));

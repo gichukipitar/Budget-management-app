@@ -7,20 +7,20 @@ import lombok.Setter;
 
 import java.time.LocalDate;
 
-/**
- * DTO for {@link com.sirhpitar.budget.entities.Budget}
- */
-@AllArgsConstructor
-@Getter
 @Setter
 @Builder
-public class BudgetResponseDto {
-   // private Long id;
+@AllArgsConstructor
+@Getter
+public class IncomeSourceResponseDto {
+    private Long id;
     private String name;
+    private String type;
+    private String category;
+    private Double amount;
+    private String frequency;
     private LocalDate startDate;
     private LocalDate endDate;
-    private String periodType;
-    private Double totalAmount;
     private boolean active;
+    private String description;
     private Long userId;
 }

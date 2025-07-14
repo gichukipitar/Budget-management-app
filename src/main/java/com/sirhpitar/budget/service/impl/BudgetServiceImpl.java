@@ -11,12 +11,12 @@ import com.sirhpitar.budget.repository.UserRepository;
 import com.sirhpitar.budget.service.BudgetService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
-
-import java.time.LocalDate;
 
 @Service
 @RequiredArgsConstructor
@@ -27,87 +27,84 @@ public class BudgetServiceImpl implements BudgetService {
     private final UserRepository userRepository;
     private final BudgetMapper budgetMapper;
 
+    @Override
     public Mono<BudgetResponseDto> createBudget(BudgetRequestDto dto) {
-        return Mono.fromCallable(() -> userRepository.findById(dto.getUserId()))
-                .subscribeOn(Schedulers.boundedElastic())
-                .flatMap(optionalUser -> {
-                    if (optionalUser.isEmpty()) {
-                        return Mono.error(new NotFoundException("User not found"));
-                    }
-                    User user = optionalUser.get();
-
-                    if (dto.getBudgetDate() == null) {
-                        dto.setBudgetDate(LocalDate.now());
-                    }
-
-                    Budget budget = budgetMapper.toEntity(dto, user);
-
-                    return Mono.fromCallable(() -> budgetRepository.save(budget))
-                            .subscribeOn(Schedulers.boundedElastic())
-                            .map(budgetMapper::toDto);
-                });
+        return Mono.fromCallable(() -> createBudgetInternal(dto))
+                .subscribeOn(Schedulers.boundedElastic());
     }
 
     @Override
     public Mono<BudgetResponseDto> getBudgetById(Long id) {
-        return Mono.fromCallable(() -> budgetRepository.findById(id))
-                .subscribeOn(Schedulers.boundedElastic())
-                .flatMap(optionalBudget -> optionalBudget
-                        .map(budget -> Mono.just(budgetMapper.toDto(budget)))
-                        .orElseGet(Mono::empty)
-                );
+        return Mono.fromCallable(() -> getBudgetByIdInternal(id))
+                .subscribeOn(Schedulers.boundedElastic());
     }
 
     @Override
     public Mono<BudgetResponseDto> updateBudget(Long id, BudgetRequestDto dto) {
-        return Mono.fromCallable(() -> budgetRepository.findById(id))
-                .subscribeOn(Schedulers.boundedElastic())
-                .flatMap(optionalBudget -> {
-                    if (optionalBudget.isEmpty()) {
-                        return Mono.error(new NotFoundException("Budget not found"));
-                    }
-
-                    Budget budget = optionalBudget.get();
-
-                    LocalDate dateToSet = dto.getBudgetDate() != null ? dto.getBudgetDate() : LocalDate.now();
-                    budget.setBudgetDate(dateToSet);
-
-                    if (dto.getUserId() != null && !dto.getUserId().equals(budget.getUser().getId())) {
-                        return Mono.fromCallable(() -> userRepository.findById(dto.getUserId()))
-                                .subscribeOn(Schedulers.boundedElastic())
-                                .flatMap(optionalUser -> {
-                                    if (optionalUser.isEmpty()) {
-                                        return Mono.error(new NotFoundException("User not found"));
-                                    }
-                                    budget.setUser(optionalUser.get());
-                                    return Mono.fromCallable(() -> budgetRepository.save(budget))
-                                            .subscribeOn(Schedulers.boundedElastic())
-                                            .map(budgetMapper::toDto);
-                                });
-                    }
-                    return Mono.fromCallable(() -> budgetRepository.save(budget))
-                            .subscribeOn(Schedulers.boundedElastic())
-                            .map(budgetMapper::toDto);
-
-                });
+        return Mono.fromCallable(() -> updateBudgetInternal(id, dto))
+                .subscribeOn(Schedulers.boundedElastic());
     }
 
     @Override
     public Mono<Void> deleteBudget(Long id) {
-        return Mono.fromCallable(() -> {
-            if (!budgetRepository.existsById(id)) {
-                throw new NotFoundException("Budget not found");
-            }
-            budgetRepository.deleteById(id);
-            return null;
-        }).subscribeOn(Schedulers.boundedElastic()).then();
+        return Mono.fromRunnable(() -> deleteBudgetInternal(id))
+                .subscribeOn(Schedulers.boundedElastic()).then();
     }
 
     @Override
     public Flux<BudgetResponseDto> getAllBudgets() {
-        return Mono.fromCallable(budgetRepository::findAll)
+        return Mono.fromCallable(() -> {
+                    User user = getCurrentUser();
+                    return budgetRepository.findByUser(user);
+                })
                 .subscribeOn(Schedulers.boundedElastic())
                 .flatMapMany(budgets -> Flux.fromIterable(budgets)
                         .map(budgetMapper::toDto));
+    }
+
+    // --- Private helper methods ---
+
+    private User getCurrentUser() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        String email = auth.getName();
+        return userRepository.findByEmail(email)
+                .orElseThrow(() -> new NotFoundException("User not found"));
+    }
+
+    private BudgetResponseDto createBudgetInternal(BudgetRequestDto dto) {
+        User user = getCurrentUser();
+        Budget budget = budgetMapper.toEntity(dto, user);
+        Budget savedBudget = budgetRepository.save(budget);
+        return budgetMapper.toDto(savedBudget);
+    }
+
+    private BudgetResponseDto getBudgetByIdInternal(Long id) {
+        Budget budget = budgetRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException("Budget not found"));
+        return budgetMapper.toDto(budget);
+    }
+
+    private BudgetResponseDto updateBudgetInternal(Long id, BudgetRequestDto dto) {
+        Budget budget = budgetRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException("Budget not found"));
+
+        User currentUser = getCurrentUser();
+        if (!budget.getUser().getId().equals(currentUser.getId())) {
+            throw new NotFoundException("Not your budget!");
+        }
+
+        budgetMapper.updateBudgetFromDto(dto, budget);
+        Budget savedBudget = budgetRepository.save(budget);
+        return budgetMapper.toDto(savedBudget);
+    }
+
+    private void deleteBudgetInternal(Long id) {
+        Budget budget = budgetRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException("Budget not found"));
+        User currentUser = getCurrentUser();
+        if (!budget.getUser().getId().equals(currentUser.getId())) {
+            throw new NotFoundException("Not your budget!");
+        }
+        budgetRepository.deleteById(id);
     }
 }

@@ -5,16 +5,14 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.Setter;
 
-/**
- * DTO for {@link com.sirhpitar.budget.entities.Notification}
- */
 @AllArgsConstructor
+@Builder
 @Getter
 @Setter
-@Builder
-public class NotificationResponseDto {
+public class BudgetCategoryResponseDto {
     private Long id;
-    private String message;
-    private boolean read;
-    private Long userId;
+    private Long budgetId;
+    private Long expenseCategoryId;
+    private Double allocatedAmount;
+    private Double alertThreshold;
 }

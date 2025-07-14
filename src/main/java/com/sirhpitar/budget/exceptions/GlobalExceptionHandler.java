@@ -54,12 +54,24 @@ public class GlobalExceptionHandler {
 
     private String parsePostgresDuplicateKeyMessage(String rawMessage) {
         if (rawMessage == null) return "Duplicate value detected.";
+
+        // Handle expense-specific constraint violations
+        if (rawMessage.contains("uk_expense_user_category_amount_date")) {
+            return "An expense with the same category, amount, and date already exists for this user.";
+        }
+
+        if (rawMessage.contains("uk_expense_receipt_url")) {
+            return "This receipt URL is already associated with another expense.";
+        }
+
+        // Original pattern matching
         Pattern pattern = Pattern.compile("Key \\((\\w+)\\)=\\([^)]+\\) already exists");
         Matcher matcher = pattern.matcher(rawMessage);
         if (matcher.find()) {
             String field = matcher.group(1);
             return String.format("The %s you provided is already in use.", field);
         }
+
         Pattern constraintPattern = Pattern.compile("violates unique constraint \"(\\w+)\"");
         Matcher constraintMatcher = constraintPattern.matcher(rawMessage);
         if (constraintMatcher.find()) {
@@ -67,11 +79,13 @@ public class GlobalExceptionHandler {
             String field = guessFieldFromConstraint(constraint);
             return String.format("The %s you provided is already in use.", field);
         }
+
         return "Duplicate value detected.";
     }
 
     private String guessFieldFromConstraint(String constraint) {
-        Pattern fieldPattern = Pattern.compile("(?i)(email|username|category|budget|phone)");
+        // Enhanced pattern matching for expense-related constraints
+        Pattern fieldPattern = Pattern.compile("(?i)(email|username|category|budget|phone|expense|receipt)");
         Matcher matcher = fieldPattern.matcher(constraint);
         if (matcher.find()) {
             return matcher.group(1);

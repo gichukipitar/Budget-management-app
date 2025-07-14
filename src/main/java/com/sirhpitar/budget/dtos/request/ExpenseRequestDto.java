@@ -15,9 +15,13 @@ import java.time.LocalDate;
 @Setter
 @Builder
 public class ExpenseRequestDto {
-    private Long categoryId;
+    private Long expenseCategoryId;
     private Long userId;
     private Double amount;
     private String description;
-    private LocalDate date;
+    private LocalDate transactionDate;
+    private String paymentMethod;
+    private String receiptUrl;
+    private boolean recurring;
+    private String recurringFrequency;
 }
