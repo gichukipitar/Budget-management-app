@@ -11,17 +11,18 @@ import com.sirhpitar.budget.repository.BudgetCategoryRepository;
 import com.sirhpitar.budget.repository.BudgetRepository;
 import com.sirhpitar.budget.repository.ExpenseCategoryRepository;
 import com.sirhpitar.budget.service.BudgetCategoryService;
+import com.sirhpitar.budget.utils.ReactorBlocking;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Schedulers;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class BudgetCategoryServiceImpl implements BudgetCategoryService {
+
     private final BudgetCategoryRepository budgetCategoryRepository;
     private final BudgetCategoryMapper budgetCategoryMapper;
     private final BudgetRepository budgetRepository;
@@ -29,30 +30,27 @@ public class BudgetCategoryServiceImpl implements BudgetCategoryService {
 
     @Override
     public Mono<BudgetCategoryResponseDto> createCategory(BudgetCategoryRequestDto dto) {
-        return Mono.fromCallable(() -> createBudgetCategory(dto))
-                .subscribeOn(Schedulers.boundedElastic());
+        return ReactorBlocking.mono(() -> createBudgetCategory(dto));
     }
 
     @Override
     public Mono<BudgetCategoryResponseDto> updateCategory(Long id, BudgetCategoryRequestDto dto) {
-        return Mono.fromCallable(() -> updateBudgetCategory(id, dto))
-                .subscribeOn(Schedulers.boundedElastic());
+        return ReactorBlocking.mono(() -> updateBudgetCategory(id, dto));
     }
 
     @Override
     public Mono<Void> deleteCategory(Long id) {
-        return Mono.fromRunnable(() -> {
+        return ReactorBlocking.run(() -> {
             if (!budgetCategoryRepository.existsById(id)) {
                 throw new NotFoundException("Budget category not found");
             }
             budgetCategoryRepository.deleteById(id);
-        }).subscribeOn(Schedulers.boundedElastic()).then();
+        });
     }
 
     @Override
     public Mono<BudgetCategoryResponseDto> getCategoryById(Long id) {
-        return Mono.fromCallable(() -> budgetCategoryRepository.findById(id))
-                .subscribeOn(Schedulers.boundedElastic())
+        return ReactorBlocking.mono(() -> budgetCategoryRepository.findById(id))
                 .flatMap(optionalCategory -> optionalCategory
                         .map(category -> Mono.just(budgetCategoryMapper.toDto(category)))
                         .orElseGet(Mono::empty));
@@ -60,8 +58,7 @@ public class BudgetCategoryServiceImpl implements BudgetCategoryService {
 
     @Override
     public Flux<BudgetCategoryResponseDto> getAllCategories() {
-        return Mono.fromCallable(budgetCategoryRepository::findAll)
-                .subscribeOn(Schedulers.boundedElastic())
+        return ReactorBlocking.mono(budgetCategoryRepository::findAll)
                 .flatMapMany(Flux::fromIterable)
                 .map(budgetCategoryMapper::toDto);
     }
@@ -86,8 +83,10 @@ public class BudgetCategoryServiceImpl implements BudgetCategoryService {
     private BudgetCategoryResponseDto createBudgetCategory(BudgetCategoryRequestDto dto) {
         Budget budget = findBudgetOrThrow(dto.getBudgetId());
         ExpenseCategory expenseCategory = findExpenseCategoryOrThrow(dto.getExpenseCategoryId());
+
         BudgetCategory budgetCategory = budgetCategoryMapper.toEntity(dto, budget, expenseCategory);
         BudgetCategory savedCategory = budgetCategoryRepository.save(budgetCategory);
+
         return budgetCategoryMapper.toDto(savedCategory);
     }
 
@@ -96,10 +95,14 @@ public class BudgetCategoryServiceImpl implements BudgetCategoryService {
 
         budgetCategoryMapper.updateBudgetCategoryFromDto(dto, budgetCategory);
 
-        if (dto.getBudgetId() != null && !dto.getBudgetId().equals(budgetCategory.getBudget().getId())) {
+        if (dto.getBudgetId() != null
+                && (budgetCategory.getBudget() == null || !dto.getBudgetId().equals(budgetCategory.getBudget().getId()))) {
             budgetCategory.setBudget(findBudgetOrThrow(dto.getBudgetId()));
         }
-        if (dto.getExpenseCategoryId() != null && !dto.getExpenseCategoryId().equals(budgetCategory.getExpenseCategory().getId())) {
+
+        if (dto.getExpenseCategoryId() != null
+                && (budgetCategory.getExpenseCategory() == null
+                || !dto.getExpenseCategoryId().equals(budgetCategory.getExpenseCategory().getId()))) {
             budgetCategory.setExpenseCategory(findExpenseCategoryOrThrow(dto.getExpenseCategoryId()));
         }
 

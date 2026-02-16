@@ -11,9 +11,9 @@ import org.mapstruct.Mapping;
 public interface FinancialGoalMapper {
 
     @Mapping(target = "userId", source = "user.id")
-    FinancialGoalResponseDto toDto(FinancialGoal financialGoal);
+    FinancialGoalResponseDto toEntity(FinancialGoal financialGoal);
 
-    default FinancialGoal toDto (FinancialGoalRequestDto dto, User user) {
+    default FinancialGoal toEntity(FinancialGoalRequestDto dto, User user) {
         FinancialGoal goal = toEntity(dto);
         goal.setUser(user);
         return goal;

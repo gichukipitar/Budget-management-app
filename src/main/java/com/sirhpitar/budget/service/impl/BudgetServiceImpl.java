@@ -1,3 +1,4 @@
+
 package com.sirhpitar.budget.service.impl;
 
 import com.sirhpitar.budget.dtos.request.BudgetRequestDto;
@@ -9,6 +10,7 @@ import com.sirhpitar.budget.mappers.BudgetMapper;
 import com.sirhpitar.budget.repository.BudgetRepository;
 import com.sirhpitar.budget.repository.UserRepository;
 import com.sirhpitar.budget.service.BudgetService;
+import com.sirhpitar.budget.utils.ReactorBlocking;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
@@ -16,7 +18,6 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Schedulers;
 
 @Service
 @RequiredArgsConstructor
@@ -29,37 +30,31 @@ public class BudgetServiceImpl implements BudgetService {
 
     @Override
     public Mono<BudgetResponseDto> createBudget(BudgetRequestDto dto) {
-        return Mono.fromCallable(() -> createBudgetInternal(dto))
-                .subscribeOn(Schedulers.boundedElastic());
+        return ReactorBlocking.mono(() -> createBudgetInternal(dto));
     }
 
     @Override
     public Mono<BudgetResponseDto> getBudgetById(Long id) {
-        return Mono.fromCallable(() -> getBudgetByIdInternal(id))
-                .subscribeOn(Schedulers.boundedElastic());
+        return ReactorBlocking.mono(() -> getBudgetByIdInternal(id));
     }
 
     @Override
     public Mono<BudgetResponseDto> updateBudget(Long id, BudgetRequestDto dto) {
-        return Mono.fromCallable(() -> updateBudgetInternal(id, dto))
-                .subscribeOn(Schedulers.boundedElastic());
+        return ReactorBlocking.mono(() -> updateBudgetInternal(id, dto));
     }
 
     @Override
     public Mono<Void> deleteBudget(Long id) {
-        return Mono.fromRunnable(() -> deleteBudgetInternal(id))
-                .subscribeOn(Schedulers.boundedElastic()).then();
+        return ReactorBlocking.run(() -> deleteBudgetInternal(id));
     }
 
     @Override
     public Flux<BudgetResponseDto> getAllBudgets() {
-        return Mono.fromCallable(() -> {
+        return ReactorBlocking.mono(() -> {
                     User user = getCurrentUser();
                     return budgetRepository.findByUser(user);
                 })
-                .subscribeOn(Schedulers.boundedElastic())
-                .flatMapMany(budgets -> Flux.fromIterable(budgets)
-                        .map(budgetMapper::toDto));
+                .flatMapMany(budgets -> Flux.fromIterable(budgets).map(budgetMapper::toDto));
     }
 
     // --- Private helper methods ---
@@ -89,11 +84,13 @@ public class BudgetServiceImpl implements BudgetService {
                 .orElseThrow(() -> new NotFoundException("Budget not found"));
 
         User currentUser = getCurrentUser();
-        if (!budget.getUser().getId().equals(currentUser.getId())) {
+        if (budget.getUser() == null || currentUser.getId() == null
+                || !budget.getUser().getId().equals(currentUser.getId())) {
             throw new NotFoundException("Not your budget!");
         }
 
         budgetMapper.updateBudgetFromDto(dto, budget);
+
         Budget savedBudget = budgetRepository.save(budget);
         return budgetMapper.toDto(savedBudget);
     }
@@ -101,10 +98,13 @@ public class BudgetServiceImpl implements BudgetService {
     private void deleteBudgetInternal(Long id) {
         Budget budget = budgetRepository.findById(id)
                 .orElseThrow(() -> new NotFoundException("Budget not found"));
+
         User currentUser = getCurrentUser();
-        if (!budget.getUser().getId().equals(currentUser.getId())) {
+        if (budget.getUser() == null || currentUser.getId() == null
+                || !budget.getUser().getId().equals(currentUser.getId())) {
             throw new NotFoundException("Not your budget!");
         }
+
         budgetRepository.deleteById(id);
     }
 }

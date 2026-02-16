@@ -11,9 +11,9 @@ import org.mapstruct.Mapping;
 public interface IncomeSourceMapper {
 
     @Mapping(target = "userId", source = "user.id")
-    IncomeSourceResponseDto toDto(IncomeSource incomeSource);
+    IncomeSourceResponseDto toEntity(IncomeSource incomeSource);
 
-    default IncomeSource toDto(IncomeSourceRequestDto dto, User user) {
+    default IncomeSource toEntity(IncomeSourceRequestDto dto, User user) {
         IncomeSource incomeSource = toEntity(dto);
         incomeSource.setUser(user);
         return incomeSource;
