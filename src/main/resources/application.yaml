@@ -1,3 +1,10 @@
+app:
+  security:
+    jwt:
+      issuer: budget-app
+      secret: "CHANGE_ME_TO_A_LONG_RANDOM_SECRET_AT_LEAST_32_CHARS"
+      access-token-minutes: 60
+
 spring:
   application:
     name: budget

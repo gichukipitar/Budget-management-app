@@ -4,12 +4,15 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.time.Instant;
 import java.util.List;
 
 @Getter
 @Setter
 @Entity
-@Table(name = "users")public class User extends Auditable {
+@Table(name = "users")
+public class User extends Auditable {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -20,7 +23,19 @@ import java.util.List;
     @Column(unique = true, nullable = false)
     private String email;
 
+    /**
+     * Store BCrypt hash here (never store raw password)
+     */
+    @Column(nullable = false)
     private String password;
+
+    @Column(nullable = false)
+    private boolean enabled = true;
+
+    @Column(nullable = false)
+    private int failedLoginAttempts = 0;
+
+    private Instant lockedUntil;
 
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<Budget> budgets;
