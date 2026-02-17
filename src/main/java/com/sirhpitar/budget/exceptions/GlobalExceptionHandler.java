@@ -11,6 +11,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.support.WebExchangeBindException;
+import org.springframework.web.reactive.resource.NoResourceFoundException;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -39,6 +40,13 @@ public class GlobalExceptionHandler {
         String rawMessage = ex.getMessage();
         String cleanedMessage = parsePostgresDuplicateKeyMessage(rawMessage);
         return ApiResponseUtil.error(HttpStatus.BAD_REQUEST, cleanedMessage);
+    }
+
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNoResourceFound(NoResourceFoundException ex) {
+        // This happens when the request doesn't match any controller route
+        // and WebFlux thinks you're requesting a static resource.
+        return ApiResponseUtil.notFound(ex.getMessage());
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
