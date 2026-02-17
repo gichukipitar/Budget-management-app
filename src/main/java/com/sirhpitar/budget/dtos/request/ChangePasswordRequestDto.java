@@ -7,10 +7,10 @@ import lombok.Data;
 @Data
 public class ChangePasswordRequestDto {
 
-    @NotBlank
+    @NotBlank(message = "Old password cannot be blank")
     private String oldPassword;
 
-    @NotBlank
+    @NotBlank(message = "New password cannot be blank")
     @Pattern(
             regexp = "^(?=.*[A-Z])(?=.*\\d)(?=.*[!@#$%^&*()_+\\-={}\\[\\]:;\"'<>,.?/]).{6,}$",
             message = "Password must be at least 6 characters, contain one uppercase letter, one number, and one special character"

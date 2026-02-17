@@ -4,6 +4,10 @@ app:
       issuer: budget-app
       secret: "CHANGE_ME_TO_A_LONG_RANDOM_SECRET_AT_LEAST_32_CHARS"
       access-token-minutes: 60
+    auth:
+      max-failed-attempts: 5
+      lock-minutes: 15
+
 
 spring:
   application:
