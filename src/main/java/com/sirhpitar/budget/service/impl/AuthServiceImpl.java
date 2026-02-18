@@ -12,6 +12,7 @@ import com.sirhpitar.budget.service.AuthService;
 import com.sirhpitar.budget.utils.ReactorBlocking;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.*;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
@@ -98,13 +99,17 @@ public class AuthServiceImpl implements AuthService {
 
         JwtClaimsSet claims = JwtClaimsSet.builder()
                 .issuer(jwtProps.issuer())
+                .subject(String.valueOf(user.getId()))
                 .issuedAt(now)
                 .expiresAt(exp)
-                .subject(user.getEmail())
-                .claim("uid", user.getId())
+                .claim("email", user.getEmail())
                 .claim("username", user.getUsername())
+                .claim("role", "USER")
                 .build();
 
-        return jwtEncoder.encode(JwtEncoderParameters.from(claims)).getTokenValue();
+        JwsHeader headers = JwsHeader.with(MacAlgorithm.HS256).build();
+
+        return jwtEncoder.encode(JwtEncoderParameters.from(headers, claims)).getTokenValue();
     }
+
 }
