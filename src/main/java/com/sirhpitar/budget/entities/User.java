@@ -35,6 +35,32 @@ public class User extends Auditable {
     @Column(nullable = false)
     private int failedLoginAttempts = 0;
 
+    // Profile fields
+    @Column(nullable = false)
+    private String firstName;
+
+    @Column(nullable = false)
+    private String lastName;
+
+    // Verification fields
+    @Column(nullable = false)
+    private boolean emailVerified = false;
+
+    private String emailVerificationToken;
+    private Instant emailVerificationTokenExpiry;
+
+    // Terms acceptance
+    @Column(nullable = false)
+    private boolean termsAccepted = false;
+
+    // Preferences
+    private String currency;
+    private String timezone;
+
+    // Optional: profile picture
+    private String profilePictureUrl;
+
+
     private Instant lockedUntil;
 
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)

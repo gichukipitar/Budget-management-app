@@ -23,6 +23,13 @@ public class UserRequestDto {
             regexp = "^(?=.*[A-Z])(?=.*\\d)(?=.*[!@#$%^&*()_+\\-={}\\[\\]:;\"'<>,.?/]).{6,}$",
             message = "Password must be at least 6 characters, contain one uppercase letter, one number, and one special character"
     )
+    @NotBlank(message = "First name cannot be blank")
+    private String firstName;
+
+    @NotBlank(message = "Last name cannot be blank")
+    private String lastName;
+
+    private boolean termsAccepted;
 
     private String password;
     @NotBlank(message = "Email cannot be blank")
