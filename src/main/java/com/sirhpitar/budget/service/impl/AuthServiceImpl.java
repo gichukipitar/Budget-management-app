@@ -94,14 +94,15 @@ public class AuthServiceImpl implements AuthService {
     }
 
     private String issueToken(User user) {
+
         Instant now = Instant.now();
-        Instant exp = now.plus(jwtProps.accessTokenMinutes(), ChronoUnit.MINUTES);
+        Instant expiry = now.plus(jwtProps.accessTokenMinutes(), ChronoUnit.MINUTES);
 
         JwtClaimsSet claims = JwtClaimsSet.builder()
                 .issuer(jwtProps.issuer())
-                .subject(String.valueOf(user.getId()))
+                .subject(user.getId().toString())
                 .issuedAt(now)
-                .expiresAt(exp)
+                .expiresAt(expiry)
                 .claim("email", user.getEmail())
                 .claim("username", user.getUsername())
                 .claim("role", "USER")
@@ -109,7 +110,10 @@ public class AuthServiceImpl implements AuthService {
 
         JwsHeader headers = JwsHeader.with(MacAlgorithm.HS256).build();
 
-        return jwtEncoder.encode(JwtEncoderParameters.from(headers, claims)).getTokenValue();
+        return jwtEncoder
+                .encode(JwtEncoderParameters.from(headers, claims))
+                .getTokenValue();
     }
+
 
 }
