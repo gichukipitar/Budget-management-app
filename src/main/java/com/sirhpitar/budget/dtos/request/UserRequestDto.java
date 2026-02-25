@@ -16,13 +16,17 @@ import lombok.Setter;
 @Setter
 @Builder
 public class UserRequestDto {
+
     @NotBlank(message = "Username cannot be blank")
     private String username;
+
     @NotBlank(message = "Password cannot be blank")
     @Pattern(
             regexp = "^(?=.*[A-Z])(?=.*\\d)(?=.*[!@#$%^&*()_+\\-={}\\[\\]:;\"'<>,.?/]).{6,}$",
             message = "Password must be at least 6 characters, contain one uppercase letter, one number, and one special character"
     )
+    private String password;
+
     @NotBlank(message = "First name cannot be blank")
     private String firstName;
 
@@ -31,7 +35,6 @@ public class UserRequestDto {
 
     private boolean termsAccepted;
 
-    private String password;
     @NotBlank(message = "Email cannot be blank")
     @Email(message = "Email should be valid")
     private String email;

@@ -21,14 +21,19 @@ public class ProfileServiceImpl implements ProfileService {
     private final PasswordEncoder passwordEncoder;
 
     @Override
-    public Mono<MeResponseDto> me() {
-        return ReactorBlocking.mono(() -> toMe(getCurrentUser()));
+    public Mono<MeResponseDto> me(String email) {
+        return ReactorBlocking.mono(() -> {
+            User user = userRepository.findByEmail(email)
+                    .orElseThrow(() -> new NotFoundException("User not found"));
+            return new MeResponseDto(user.getId(), user.getUsername(), user.getEmail());
+        });
     }
 
     @Override
-    public Mono<Void> changePassword(ChangePasswordRequestDto dto) {
+    public Mono<Void> changePassword(String email, ChangePasswordRequestDto dto) {
         return ReactorBlocking.run(() -> {
-            User user = getCurrentUser();
+            User user = userRepository.findByEmail(email)
+                    .orElseThrow(() -> new NotFoundException("User not found"));
 
             if (!passwordEncoder.matches(dto.getOldPassword(), user.getPassword())) {
                 throw new IllegalArgumentException("Old password is incorrect");
@@ -38,7 +43,6 @@ public class ProfileServiceImpl implements ProfileService {
             userRepository.save(user);
         });
     }
-
     private User getCurrentUser() {
         String email = SecurityContextHolder.getContext().getAuthentication().getName();
         return userRepository.findByEmail(email)

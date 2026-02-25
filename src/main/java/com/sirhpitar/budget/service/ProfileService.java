@@ -5,6 +5,6 @@ import com.sirhpitar.budget.dtos.response.MeResponseDto;
 import reactor.core.publisher.Mono;
 
 public interface ProfileService {
-    Mono<MeResponseDto> me();
-    Mono<Void> changePassword(ChangePasswordRequestDto dto);
+    Mono<MeResponseDto> me(String email);
+    Mono<Void> changePassword(String email, ChangePasswordRequestDto dto);
 }

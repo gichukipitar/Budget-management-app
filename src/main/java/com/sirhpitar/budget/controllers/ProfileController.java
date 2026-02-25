@@ -8,6 +8,8 @@ import com.sirhpitar.budget.service.ProfileService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 
@@ -19,14 +21,19 @@ public class ProfileController {
     private final ProfileService profileService;
 
     @GetMapping("/me")
-    public Mono<ResponseEntity<ApiResponse<MeResponseDto>>> me() {
-        return profileService.me()
+    public Mono<ResponseEntity<ApiResponse<MeResponseDto>>> me(@AuthenticationPrincipal Jwt jwt) {
+        String email = jwt.getClaimAsString("email");
+        return profileService.me(email)
                 .map(data -> ApiResponseUtil.success("Profile fetched successfully", data));
     }
 
     @PostMapping("/change-password")
-    public Mono<ResponseEntity<ApiResponse<Void>>> changePassword(@Valid @RequestBody ChangePasswordRequestDto dto) {
-        return profileService.changePassword(dto)
+    public Mono<ResponseEntity<ApiResponse<Void>>> changePassword(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody ChangePasswordRequestDto dto
+    ) {
+        String email = jwt.getClaimAsString("email");
+        return profileService.changePassword(email, dto)
                 .thenReturn(ApiResponseUtil.success("Password changed successfully", null));
     }
 }
