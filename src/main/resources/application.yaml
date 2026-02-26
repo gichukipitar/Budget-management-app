@@ -9,11 +9,23 @@ app:
       lock-minutes: 15
       verification-token-minutes: 1440
       verification-base-url: "http://localhost:8080/api/auth/verify-email?token="
+      verification-from: "no-reply@budget-app.local"
 
 
 spring:
   application:
     name: budget
+  mail:
+    host: sandbox.smtp.mailtrap.io
+    port: 587
+    username: 810e67c078a134
+    password: 142d9fd0e420b2
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
   datasource:
     url: jdbc:postgresql://localhost:5432/budget_app
     #    url: jdbc:postgresql://budget-postgres:5432/budget_app

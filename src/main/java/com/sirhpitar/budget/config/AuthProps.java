@@ -8,5 +8,6 @@ public record AuthProps(
         int maxFailedAttempts,
         long lockMinutes,
         long verificationTokenMinutes,
-        String verificationBaseUrl
+        String verificationBaseUrl,
+        String verificationFrom
 ) {}
