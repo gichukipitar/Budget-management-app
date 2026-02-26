@@ -10,6 +10,7 @@ app:
       verification-token-minutes: 1440
       verification-base-url: "http://localhost:8080/api/auth/verify-email?token="
       verification-from: "no-reply@budget-app.local"
+      resend-cooldown-minutes: 5
 
 
 spring:

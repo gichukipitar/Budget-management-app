@@ -7,6 +7,7 @@ import com.sirhpitar.budget.dtos.request.UserRequestDto;
 import com.sirhpitar.budget.dtos.response.AuthResponseDto;
 import com.sirhpitar.budget.entities.User;
 import com.sirhpitar.budget.exceptions.NotFoundException;
+import com.sirhpitar.budget.exceptions.TooManyRequestsException;
 import com.sirhpitar.budget.repository.UserRepository;
 import com.sirhpitar.budget.service.AuthService;
 import com.sirhpitar.budget.service.EmailVerificationService;
@@ -63,6 +64,7 @@ public class AuthServiceImpl implements AuthService {
             String token = UUID.randomUUID().toString();
             user.setEmailVerificationToken(token);
             user.setEmailVerificationTokenExpiry(Instant.now().plus(authProps.verificationTokenMinutes(), ChronoUnit.MINUTES));
+            user.setEmailVerificationSentAt(Instant.now());
 
             User saved = userRepository.save(user);
             emailVerificationService.sendVerificationEmail(saved, token);
@@ -126,7 +128,40 @@ public class AuthServiceImpl implements AuthService {
             user.setEnabled(true);
             user.setEmailVerificationToken(null);
             user.setEmailVerificationTokenExpiry(null);
+            user.setEmailVerificationSentAt(null);
             userRepository.save(user);
+        });
+    }
+
+    @Override
+    public Mono<Void> resendVerification(String email) {
+        return ReactorBlocking.run(() -> {
+            if (email == null || email.isBlank()) {
+                throw new IllegalArgumentException("Email is required");
+            }
+
+            User user = userRepository.findByEmail(email.toLowerCase().trim())
+                    .orElseThrow(() -> new NotFoundException("User not found"));
+
+            if (user.isEmailVerified()) {
+                throw new IllegalArgumentException("Email already verified");
+            }
+
+            if (user.getEmailVerificationSentAt() != null && authProps.resendCooldownMinutes() > 0) {
+                Instant nextAllowed = user.getEmailVerificationSentAt()
+                        .plus(authProps.resendCooldownMinutes(), ChronoUnit.MINUTES);
+                if (nextAllowed.isAfter(Instant.now())) {
+                    throw new TooManyRequestsException("Verification email recently sent. Please try again later.");
+                }
+            }
+
+            String token = UUID.randomUUID().toString();
+            user.setEmailVerificationToken(token);
+            user.setEmailVerificationTokenExpiry(Instant.now().plus(authProps.verificationTokenMinutes(), ChronoUnit.MINUTES));
+            user.setEmailVerificationSentAt(Instant.now());
+            userRepository.save(user);
+
+            emailVerificationService.sendVerificationEmail(user, token);
         });
     }
 

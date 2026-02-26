@@ -48,6 +48,7 @@ public class User extends Auditable {
 
     private String emailVerificationToken;
     private Instant emailVerificationTokenExpiry;
+    private Instant emailVerificationSentAt;
 
     // Terms acceptance
     @Column(nullable = false)

@@ -3,6 +3,7 @@ package com.sirhpitar.budget.controllers;
 import com.sirhpitar.budget.api_wrappers.ApiResponse;
 import com.sirhpitar.budget.api_wrappers.ApiResponseUtil;
 import com.sirhpitar.budget.dtos.request.LoginRequestDto;
+import com.sirhpitar.budget.dtos.request.ResendVerificationRequestDto;
 import com.sirhpitar.budget.dtos.request.UserRequestDto;
 import com.sirhpitar.budget.dtos.response.AuthResponseDto;
 import com.sirhpitar.budget.service.AuthService;
@@ -35,5 +36,11 @@ public class AuthController {
     public Mono<ResponseEntity<ApiResponse<Void>>> verifyEmail(@RequestParam("token") String token) {
         return authService.verifyEmail(token)
                 .thenReturn(ApiResponseUtil.success("Email verified successfully", null));
+    }
+
+    @PostMapping("/resend-verification")
+    public Mono<ResponseEntity<ApiResponse<Void>>> resendVerification(@Valid @RequestBody ResendVerificationRequestDto dto) {
+        return authService.resendVerification(dto.getEmail())
+                .thenReturn(ApiResponseUtil.success("Verification email resent", null));
     }
 }

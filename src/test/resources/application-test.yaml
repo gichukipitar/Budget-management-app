@@ -1,10 +1,24 @@
+app:
+  security:
+    jwt:
+      issuer: budget-app-test
+      secret: "test-secret-key-test-secret-key-test-secret-key"
+      access-token-minutes: 60
+    auth:
+      max-failed-attempts: 5
+      lock-minutes: 15
+      verification-token-minutes: 60
+      verification-base-url: "http://localhost:8080/api/auth/verify-email?token="
+      verification-from: "no-reply@test.local"
+      resend-cooldown-minutes: 0
+
 spring:
   datasource:
-    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1
+    url: jdbc:h2:mem:budget_test;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
     driver-class-name: org.h2.Driver
     username: sa
     password:
   jpa:
     hibernate:
       ddl-auto: create-drop
-    show-sql: true
+    show-sql: false

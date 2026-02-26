@@ -9,4 +9,5 @@ public interface AuthService {
     Mono<Void> register(UserRequestDto dto);
     Mono<AuthResponseDto> login(LoginRequestDto dto);
     Mono<Void> verifyEmail(String token);
+    Mono<Void> resendVerification(String email);
 }
