@@ -9,6 +9,7 @@ import com.sirhpitar.budget.entities.User;
 import com.sirhpitar.budget.exceptions.NotFoundException;
 import com.sirhpitar.budget.repository.UserRepository;
 import com.sirhpitar.budget.service.AuthService;
+import com.sirhpitar.budget.service.EmailVerificationService;
 import com.sirhpitar.budget.utils.ReactorBlocking;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -19,6 +20,7 @@ import reactor.core.publisher.Mono;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -29,10 +31,11 @@ public class AuthServiceImpl implements AuthService {
     private final JwtEncoder jwtEncoder;
     private final JwtProps jwtProps;
     private final AuthProps authProps;
+    private final EmailVerificationService emailVerificationService;
 
     @Override
-    public Mono<AuthResponseDto> register(UserRequestDto dto) {
-        return ReactorBlocking.mono(() -> {
+    public Mono<Void> register(UserRequestDto dto) {
+        return ReactorBlocking.run(() -> {
             String email = dto.getEmail().toLowerCase().trim();
             String username = dto.getUsername().trim();
 
@@ -43,6 +46,10 @@ public class AuthServiceImpl implements AuthService {
                 throw new IllegalArgumentException("Username already in use");
             });
 
+            if (!dto.isTermsAccepted()) {
+                throw new IllegalArgumentException("Terms of service must be accepted");
+            }
+
             User user = new User();
             user.setEmail(email);
             user.setUsername(username);
@@ -51,12 +58,14 @@ public class AuthServiceImpl implements AuthService {
             user.setLastName(dto.getLastName().trim());
             user.setTermsAccepted(dto.isTermsAccepted());
 
-            user.setEnabled(true);
+            user.setEnabled(false);
+            user.setEmailVerified(false);
+            String token = UUID.randomUUID().toString();
+            user.setEmailVerificationToken(token);
+            user.setEmailVerificationTokenExpiry(Instant.now().plus(authProps.verificationTokenMinutes(), ChronoUnit.MINUTES));
 
             User saved = userRepository.save(user);
-            String token = issueToken(saved);
-
-            return new AuthResponseDto(token, "Bearer");
+            emailVerificationService.sendVerificationEmail(saved, token);
         });
     }
 
@@ -69,6 +78,7 @@ public class AuthServiceImpl implements AuthService {
                     .orElseGet(() -> userRepository.findByUsername(identifier)
                             .orElseThrow(() -> new NotFoundException("Invalid credentials")));
 
+            if (!user.isEmailVerified()) throw new IllegalArgumentException("Email not verified");
             if (!user.isEnabled()) throw new IllegalArgumentException("Account disabled");
 
             if (user.getLockedUntil() != null && user.getLockedUntil().isAfter(Instant.now())) {
@@ -94,6 +104,29 @@ public class AuthServiceImpl implements AuthService {
             userRepository.save(user);
 
             return new AuthResponseDto(issueToken(user), "Bearer");
+        });
+    }
+
+    @Override
+    public Mono<Void> verifyEmail(String token) {
+        return ReactorBlocking.run(() -> {
+            if (token == null || token.isBlank()) {
+                throw new IllegalArgumentException("Verification token is required");
+            }
+
+            User user = userRepository.findByEmailVerificationToken(token.trim())
+                    .orElseThrow(() -> new NotFoundException("Invalid or expired verification token"));
+
+            Instant expiry = user.getEmailVerificationTokenExpiry();
+            if (expiry == null || expiry.isBefore(Instant.now())) {
+                throw new IllegalArgumentException("Verification token expired");
+            }
+
+            user.setEmailVerified(true);
+            user.setEnabled(true);
+            user.setEmailVerificationToken(null);
+            user.setEmailVerificationTokenExpiry(null);
+            userRepository.save(user);
         });
     }
 

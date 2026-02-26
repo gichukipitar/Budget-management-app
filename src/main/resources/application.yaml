@@ -7,6 +7,8 @@ app:
     auth:
       max-failed-attempts: 5
       lock-minutes: 15
+      verification-token-minutes: 1440
+      verification-base-url: "http://localhost:8080/api/auth/verify-email?token="
 
 
 spring:

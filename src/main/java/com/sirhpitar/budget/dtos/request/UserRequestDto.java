@@ -3,6 +3,7 @@ package com.sirhpitar.budget.dtos.request;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.AssertTrue;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -22,8 +23,8 @@ public class UserRequestDto {
 
     @NotBlank(message = "Password cannot be blank")
     @Pattern(
-            regexp = "^(?=.*[A-Z])(?=.*\\d)(?=.*[!@#$%^&*()_+\\-={}\\[\\]:;\"'<>,.?/]).{6,}$",
-            message = "Password must be at least 6 characters, contain one uppercase letter, one number, and one special character"
+            regexp = "^(?=.*[!@#$%^&*()_+\\-={}\\[\\]:;\"'<>,.?/]).{8,}$",
+            message = "Password must be at least 8 characters and contain one special character"
     )
     private String password;
 
@@ -33,6 +34,7 @@ public class UserRequestDto {
     @NotBlank(message = "Last name cannot be blank")
     private String lastName;
 
+    @AssertTrue(message = "Terms of service must be accepted")
     private boolean termsAccepted;
 
     @NotBlank(message = "Email cannot be blank")

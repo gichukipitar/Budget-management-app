@@ -6,5 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "app.security.auth")
 public record AuthProps(
         int maxFailedAttempts,
-        long lockMinutes
+        long lockMinutes,
+        long verificationTokenMinutes,
+        String verificationBaseUrl
 ) {}

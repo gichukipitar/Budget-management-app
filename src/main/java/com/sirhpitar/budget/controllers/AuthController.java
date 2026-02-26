@@ -20,14 +20,20 @@ public class AuthController {
     private final AuthService authService;
 
     @PostMapping("/register")
-    public Mono<ResponseEntity<ApiResponse<AuthResponseDto>>> register(@Valid @RequestBody UserRequestDto dto) {
+    public Mono<ResponseEntity<ApiResponse<Void>>> register(@Valid @RequestBody UserRequestDto dto) {
         return authService.register(dto)
-                .map(data -> ApiResponseUtil.success("Registration successful", data));
+                .thenReturn(ApiResponseUtil.success("Registration successful. Please verify your email.", null));
     }
 
     @PostMapping("/login")
     public Mono<ResponseEntity<ApiResponse<AuthResponseDto>>> login(@Valid @RequestBody LoginRequestDto dto) {
         return authService.login(dto)
                 .map(data -> ApiResponseUtil.success("Login successful", data));
+    }
+
+    @GetMapping("/verify-email")
+    public Mono<ResponseEntity<ApiResponse<Void>>> verifyEmail(@RequestParam("token") String token) {
+        return authService.verifyEmail(token)
+                .thenReturn(ApiResponseUtil.success("Email verified successfully", null));
     }
 }

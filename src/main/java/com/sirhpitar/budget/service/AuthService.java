@@ -6,6 +6,7 @@ import com.sirhpitar.budget.dtos.response.AuthResponseDto;
 import reactor.core.publisher.Mono;
 
 public interface AuthService {
-    Mono<AuthResponseDto> register(UserRequestDto dto);
+    Mono<Void> register(UserRequestDto dto);
     Mono<AuthResponseDto> login(LoginRequestDto dto);
+    Mono<Void> verifyEmail(String token);
 }
