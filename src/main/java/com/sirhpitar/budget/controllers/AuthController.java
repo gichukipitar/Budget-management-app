@@ -3,6 +3,7 @@ package com.sirhpitar.budget.controllers;
 import com.sirhpitar.budget.api_wrappers.ApiResponse;
 import com.sirhpitar.budget.api_wrappers.ApiResponseUtil;
 import com.sirhpitar.budget.dtos.request.LoginRequestDto;
+import com.sirhpitar.budget.dtos.request.RegisterRequestDto;
 import com.sirhpitar.budget.dtos.request.ResendVerificationRequestDto;
 import com.sirhpitar.budget.dtos.request.UserRequestDto;
 import com.sirhpitar.budget.dtos.response.AuthResponseDto;
@@ -21,9 +22,9 @@ public class AuthController {
     private final AuthService authService;
 
     @PostMapping("/register")
-    public Mono<ResponseEntity<ApiResponse<Void>>> register(@Valid @RequestBody UserRequestDto dto) {
+    public Mono<ResponseEntity<ApiResponse<Void>>> register(@Valid @RequestBody RegisterRequestDto dto) {
         return authService.register(dto)
-                .thenReturn(ApiResponseUtil.success("Registration successful. Please verify your email.", null));
+                .thenReturn(ApiResponseUtil.success("Registration successful. Verify your email.", null));
     }
 
     @PostMapping("/login")

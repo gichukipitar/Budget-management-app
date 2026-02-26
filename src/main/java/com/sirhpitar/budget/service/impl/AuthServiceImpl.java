@@ -3,6 +3,7 @@ package com.sirhpitar.budget.service.impl;
 import com.sirhpitar.budget.config.AuthProps;
 import com.sirhpitar.budget.config.JwtProps;
 import com.sirhpitar.budget.dtos.request.LoginRequestDto;
+import com.sirhpitar.budget.dtos.request.RegisterRequestDto;
 import com.sirhpitar.budget.dtos.request.UserRequestDto;
 import com.sirhpitar.budget.dtos.response.AuthResponseDto;
 import com.sirhpitar.budget.entities.User;
@@ -35,7 +36,7 @@ public class AuthServiceImpl implements AuthService {
     private final EmailVerificationService emailVerificationService;
 
     @Override
-    public Mono<Void> register(UserRequestDto dto) {
+    public Mono<Void> register(RegisterRequestDto dto) {
         return ReactorBlocking.run(() -> {
             String email = dto.getEmail().toLowerCase().trim();
             String username = dto.getUsername().trim();
