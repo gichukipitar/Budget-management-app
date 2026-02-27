@@ -4,24 +4,31 @@ import com.sirhpitar.budget.config.AuthProps;
 import com.sirhpitar.budget.config.JwtProps;
 import com.sirhpitar.budget.dtos.request.LoginRequestDto;
 import com.sirhpitar.budget.dtos.request.RegisterRequestDto;
-import com.sirhpitar.budget.dtos.request.UserRequestDto;
+import com.sirhpitar.budget.dtos.response.AuthCookieResponse;
 import com.sirhpitar.budget.dtos.response.AuthResponseDto;
+import com.sirhpitar.budget.entities.RefreshToken;
 import com.sirhpitar.budget.entities.User;
 import com.sirhpitar.budget.exceptions.NotFoundException;
 import com.sirhpitar.budget.exceptions.TooManyRequestsException;
+import com.sirhpitar.budget.repository.RefreshTokenRepository;
 import com.sirhpitar.budget.repository.UserRepository;
 import com.sirhpitar.budget.service.AuthService;
 import com.sirhpitar.budget.service.EmailVerificationService;
 import com.sirhpitar.budget.utils.ReactorBlocking;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseCookie;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.*;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.HexFormat;
 import java.util.UUID;
 
 @Service
@@ -29,6 +36,7 @@ import java.util.UUID;
 public class AuthServiceImpl implements AuthService {
 
     private final UserRepository userRepository;
+    private final RefreshTokenRepository refreshTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtEncoder jwtEncoder;
     private final JwtProps jwtProps;
@@ -60,11 +68,15 @@ public class AuthServiceImpl implements AuthService {
             user.setLastName(dto.getLastName().trim());
             user.setTermsAccepted(dto.isTermsAccepted());
 
+            // Force verification flow
             user.setEnabled(false);
             user.setEmailVerified(false);
+
             String token = UUID.randomUUID().toString();
             user.setEmailVerificationToken(token);
-            user.setEmailVerificationTokenExpiry(Instant.now().plus(authProps.verificationTokenMinutes(), ChronoUnit.MINUTES));
+            user.setEmailVerificationTokenExpiry(
+                    Instant.now().plus(authProps.verificationTokenMinutes(), ChronoUnit.MINUTES)
+            );
             user.setEmailVerificationSentAt(Instant.now());
 
             User saved = userRepository.save(user);
@@ -73,40 +85,78 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    public Mono<AuthResponseDto> login(LoginRequestDto dto) {
+    public Mono<AuthCookieResponse> login(LoginRequestDto dto) {
         return ReactorBlocking.mono(() -> {
-            String identifier = dto.getIdentifier().trim();
+            User user = authenticate(dto);
 
-            User user = userRepository.findByEmail(identifier.toLowerCase())
-                    .orElseGet(() -> userRepository.findByUsername(identifier)
-                            .orElseThrow(() -> new NotFoundException("Invalid credentials")));
+            String accessToken = issueAccessToken(user);
 
-            if (!user.isEmailVerified()) throw new IllegalArgumentException("Email not verified");
-            if (!user.isEnabled()) throw new IllegalArgumentException("Account disabled");
+            // Remember-me controls refresh duration
+            int days = dto.isRememberMe()
+                    ? authProps.refreshDaysRememberMe()
+                    : authProps.refreshDaysDefault();
 
-            if (user.getLockedUntil() != null && user.getLockedUntil().isAfter(Instant.now())) {
-                throw new IllegalArgumentException("Account locked. Try again later.");
+            String refreshRaw = UUID.randomUUID().toString();
+            saveRefreshToken(user.getId(), refreshRaw, Instant.now().plus(days, ChronoUnit.DAYS));
+
+            ResponseCookie cookie = buildRefreshCookie(refreshRaw, days);
+
+            return new AuthCookieResponse(
+                    new AuthResponseDto(accessToken, "Bearer"),
+                    cookie
+            );
+        });
+    }
+
+    @Override
+    public Mono<AuthCookieResponse> refresh(String refreshToken) {
+        return ReactorBlocking.mono(() -> {
+            if (refreshToken == null || refreshToken.isBlank()) {
+                throw new IllegalArgumentException("Refresh token is required");
             }
 
-            boolean ok = passwordEncoder.matches(dto.getPassword(), user.getPassword());
-            if (!ok) {
-                int fails = user.getFailedLoginAttempts() + 1;
-                user.setFailedLoginAttempts(fails);
+            String hash = sha256(refreshToken.trim());
 
-                if (fails >= authProps.maxFailedAttempts()) {
-                    user.setLockedUntil(Instant.now().plus(authProps.lockMinutes(), ChronoUnit.MINUTES));
-                    user.setFailedLoginAttempts(0);
-                }
+            RefreshToken existing = refreshTokenRepository.findByTokenHash(hash)
+                    .orElseThrow(() -> new NotFoundException("Invalid refresh token"));
 
-                userRepository.save(user);
-                throw new NotFoundException("Invalid credentials");
+            if (existing.isRevoked()) {
+                throw new IllegalArgumentException("Refresh token revoked");
+            }
+            if (existing.getExpiresAt() == null || existing.getExpiresAt().isBefore(Instant.now())) {
+                throw new IllegalArgumentException("Refresh token expired");
             }
 
-            user.setFailedLoginAttempts(0);
-            user.setLockedUntil(null);
-            userRepository.save(user);
+            User user = userRepository.findById(existing.getUserId())
+                    .orElseThrow(() -> new NotFoundException("User not found"));
 
-            return new AuthResponseDto(issueToken(user), "Bearer");
+            // rotate refresh token
+            existing.setRevoked(true);
+            refreshTokenRepository.save(existing);
+
+            int days = authProps.refreshDaysDefault(); // keep default on refresh (simple + safe)
+            String newRefresh = UUID.randomUUID().toString();
+            saveRefreshToken(user.getId(), newRefresh, Instant.now().plus(days, ChronoUnit.DAYS));
+
+            String newAccess = issueAccessToken(user);
+
+            return new AuthCookieResponse(
+                    new AuthResponseDto(newAccess, "Bearer"),
+                    buildRefreshCookie(newRefresh, days)
+            );
+        });
+    }
+
+    @Override
+    public Mono<Void> logout(String refreshToken) {
+        return ReactorBlocking.run(() -> {
+            if (refreshToken == null || refreshToken.isBlank()) return;
+
+            String hash = sha256(refreshToken.trim());
+            refreshTokenRepository.findByTokenHash(hash).ifPresent(t -> {
+                t.setRevoked(true);
+                refreshTokenRepository.save(t);
+            });
         });
     }
 
@@ -130,6 +180,7 @@ public class AuthServiceImpl implements AuthService {
             user.setEmailVerificationToken(null);
             user.setEmailVerificationTokenExpiry(null);
             user.setEmailVerificationSentAt(null);
+
             userRepository.save(user);
         });
     }
@@ -148,26 +199,97 @@ public class AuthServiceImpl implements AuthService {
                 throw new IllegalArgumentException("Email already verified");
             }
 
+            // cooldown
             if (user.getEmailVerificationSentAt() != null && authProps.resendCooldownMinutes() > 0) {
                 Instant nextAllowed = user.getEmailVerificationSentAt()
                         .plus(authProps.resendCooldownMinutes(), ChronoUnit.MINUTES);
+
                 if (nextAllowed.isAfter(Instant.now())) {
-                    throw new TooManyRequestsException("Verification email recently sent. Please try again later.");
+                    throw new TooManyRequestsException(
+                            "Verification email recently sent. Please try again later."
+                    );
                 }
             }
 
             String token = UUID.randomUUID().toString();
             user.setEmailVerificationToken(token);
-            user.setEmailVerificationTokenExpiry(Instant.now().plus(authProps.verificationTokenMinutes(), ChronoUnit.MINUTES));
+            user.setEmailVerificationTokenExpiry(
+                    Instant.now().plus(authProps.verificationTokenMinutes(), ChronoUnit.MINUTES)
+            );
             user.setEmailVerificationSentAt(Instant.now());
-            userRepository.save(user);
 
+            userRepository.save(user);
             emailVerificationService.sendVerificationEmail(user, token);
         });
     }
 
-    private String issueToken(User user) {
+    // -------------------- helpers --------------------
 
+    private User authenticate(LoginRequestDto dto) {
+        String identifier = dto.getIdentifier().trim();
+
+        User user = userRepository.findByEmail(identifier.toLowerCase())
+                .orElseGet(() -> userRepository.findByUsername(identifier)
+                        .orElseThrow(() -> new NotFoundException("Invalid credentials")));
+
+        if (!user.isEmailVerified()) throw new IllegalArgumentException("Email not verified");
+        if (!user.isEnabled()) throw new IllegalArgumentException("Account disabled");
+
+        if (user.getLockedUntil() != null && user.getLockedUntil().isAfter(Instant.now())) {
+            throw new IllegalArgumentException("Account locked. Try again later.");
+        }
+
+        boolean ok = passwordEncoder.matches(dto.getPassword(), user.getPassword());
+        if (!ok) {
+            int fails = user.getFailedLoginAttempts() + 1;
+            user.setFailedLoginAttempts(fails);
+
+            if (fails >= authProps.maxFailedAttempts()) {
+                user.setLockedUntil(Instant.now().plus(authProps.lockMinutes(), ChronoUnit.MINUTES));
+                user.setFailedLoginAttempts(0);
+            }
+
+            userRepository.save(user);
+            throw new NotFoundException("Invalid credentials");
+        }
+
+        user.setFailedLoginAttempts(0);
+        user.setLockedUntil(null);
+        userRepository.save(user);
+
+        return user;
+    }
+
+    private void saveRefreshToken(Long userId, String rawToken, Instant expiresAt) {
+        RefreshToken t = new RefreshToken();
+        t.setUserId(userId);
+        t.setTokenHash(sha256(rawToken));
+        t.setExpiresAt(expiresAt);
+        t.setRevoked(false);
+        refreshTokenRepository.save(t);
+    }
+
+    private ResponseCookie buildRefreshCookie(String raw, int days) {
+        return ResponseCookie.from("refreshToken", raw)
+                .httpOnly(true)
+                .secure(false) // set true in prod (HTTPS)
+                .sameSite("Lax")
+                .path("/api/auth")
+                .maxAge(Duration.ofDays(days))
+                .build();
+    }
+
+    private String sha256(String raw) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(raw.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hash);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to hash token", e);
+        }
+    }
+
+    private String issueAccessToken(User user) {
         Instant now = Instant.now();
         Instant expiry = now.plus(jwtProps.accessTokenMinutes(), ChronoUnit.MINUTES);
 
@@ -187,6 +309,4 @@ public class AuthServiceImpl implements AuthService {
                 .encode(JwtEncoderParameters.from(headers, claims))
                 .getTokenValue();
     }
-
-
 }

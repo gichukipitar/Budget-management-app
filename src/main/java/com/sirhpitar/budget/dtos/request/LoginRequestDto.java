@@ -13,4 +13,7 @@ public class LoginRequestDto {
 
     @NotBlank
     private String password;
+
+    // optional
+    private boolean rememberMe;
 }

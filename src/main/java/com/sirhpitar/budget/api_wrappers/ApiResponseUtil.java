@@ -46,4 +46,8 @@ public class ApiResponseUtil {
     public static <T> ResponseEntity<ApiResponse<T>> created(String message, T data) {
         return build(HttpStatus.CREATED, ApiResponseStatus.SUCCESS, message, data);
     }
+
+    public static ResponseEntity<ApiResponse<Void>> successVoid(String message) {
+        return success(message, null);
+    }
 }
