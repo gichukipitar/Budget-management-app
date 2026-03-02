@@ -30,4 +30,7 @@ public class RefreshToken {
 
     @Column(nullable = false)
     private Instant createdAt = Instant.now();
+
+    @Column(nullable = false)
+    private boolean rememberMe = false;
 }

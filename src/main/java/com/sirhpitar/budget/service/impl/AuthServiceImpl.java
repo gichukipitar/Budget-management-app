@@ -19,7 +19,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseCookie;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
-import org.springframework.security.oauth2.jwt.*;
+import org.springframework.security.oauth2.jwt.JwsHeader;
+import org.springframework.security.oauth2.jwt.JwtClaimsSet;
+import org.springframework.security.oauth2.jwt.JwtEncoder;
+import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
@@ -84,6 +87,10 @@ public class AuthServiceImpl implements AuthService {
         });
     }
 
+    /**
+     * Issues access token + sets refresh cookie.
+     * Refresh token duration depends on rememberMe and is preserved across refresh rotations.
+     */
     @Override
     public Mono<AuthCookieResponse> login(LoginRequestDto dto) {
         return ReactorBlocking.mono(() -> {
@@ -91,13 +98,13 @@ public class AuthServiceImpl implements AuthService {
 
             String accessToken = issueAccessToken(user);
 
-            // Remember-me controls refresh duration
-            int days = dto.isRememberMe()
+            boolean rememberMe = dto.isRememberMe();
+            int days = rememberMe
                     ? authProps.refreshDaysRememberMe()
                     : authProps.refreshDaysDefault();
 
             String refreshRaw = UUID.randomUUID().toString();
-            saveRefreshToken(user.getId(), refreshRaw, Instant.now().plus(days, ChronoUnit.DAYS));
+            saveRefreshToken(user.getId(), refreshRaw, Instant.now().plus(days, ChronoUnit.DAYS), rememberMe);
 
             ResponseCookie cookie = buildRefreshCookie(refreshRaw, days);
 
@@ -108,6 +115,13 @@ public class AuthServiceImpl implements AuthService {
         });
     }
 
+    /**
+     * Rotates refresh token:
+     * - validates existing token (hash lookup)
+     * - revokes old row
+     * - issues new access + new refresh
+     * - IMPORTANT: keeps rememberMe policy from the existing token row
+     */
     @Override
     public Mono<AuthCookieResponse> refresh(String refreshToken) {
         return ReactorBlocking.mono(() -> {
@@ -134,9 +148,13 @@ public class AuthServiceImpl implements AuthService {
             existing.setRevoked(true);
             refreshTokenRepository.save(existing);
 
-            int days = authProps.refreshDaysDefault(); // keep default on refresh (simple + safe)
+            boolean rememberMe = existing.isRememberMe();
+            int days = rememberMe
+                    ? authProps.refreshDaysRememberMe()
+                    : authProps.refreshDaysDefault();
+
             String newRefresh = UUID.randomUUID().toString();
-            saveRefreshToken(user.getId(), newRefresh, Instant.now().plus(days, ChronoUnit.DAYS));
+            saveRefreshToken(user.getId(), newRefresh, Instant.now().plus(days, ChronoUnit.DAYS), rememberMe);
 
             String newAccess = issueAccessToken(user);
 
@@ -260,12 +278,14 @@ public class AuthServiceImpl implements AuthService {
         return user;
     }
 
-    private void saveRefreshToken(Long userId, String rawToken, Instant expiresAt) {
+    private void saveRefreshToken(Long userId, String rawToken, Instant expiresAt, boolean rememberMe) {
         RefreshToken t = new RefreshToken();
         t.setUserId(userId);
         t.setTokenHash(sha256(rawToken));
         t.setExpiresAt(expiresAt);
         t.setRevoked(false);
+        // IMPORTANT: requires RefreshToken entity to have rememberMe boolean + getters/setters
+        t.setRememberMe(rememberMe);
         refreshTokenRepository.save(t);
     }
 
