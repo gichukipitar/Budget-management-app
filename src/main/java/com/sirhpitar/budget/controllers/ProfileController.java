@@ -3,6 +3,7 @@ package com.sirhpitar.budget.controllers;
 import com.sirhpitar.budget.api_wrappers.ApiResponse;
 import com.sirhpitar.budget.api_wrappers.ApiResponseUtil;
 import com.sirhpitar.budget.dtos.request.ChangePasswordRequestDto;
+import com.sirhpitar.budget.dtos.request.UpdateProfileRequestDto;
 import com.sirhpitar.budget.dtos.response.MeResponseDto;
 import com.sirhpitar.budget.service.ProfileService;
 import jakarta.validation.Valid;
@@ -27,6 +28,16 @@ public class ProfileController {
                 .map(data -> ApiResponseUtil.success("Profile fetched successfully", data));
     }
 
+    @PatchMapping
+    public Mono<ResponseEntity<ApiResponse<MeResponseDto>>> updateProfile(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody UpdateProfileRequestDto dto
+    ) {
+        String email = jwt.getClaimAsString("email");
+        return profileService.updateProfile(email, dto)
+                .map(data -> ApiResponseUtil.success("Profile updated successfully", data));
+    }
+
     @PostMapping("/change-password")
     public Mono<ResponseEntity<ApiResponse<Void>>> changePassword(
             @AuthenticationPrincipal Jwt jwt,
@@ -34,6 +45,6 @@ public class ProfileController {
     ) {
         String email = jwt.getClaimAsString("email");
         return profileService.changePassword(email, dto)
-                .thenReturn(ApiResponseUtil.success("Password changed successfully", null));
+                .thenReturn(ApiResponseUtil.successVoid("Password changed successfully"));
     }
 }
