@@ -5,11 +5,7 @@ import com.sirhpitar.budget.dtos.response.ExpenseResponseDto;
 import com.sirhpitar.budget.entities.Expense;
 import com.sirhpitar.budget.entities.ExpenseCategory;
 import com.sirhpitar.budget.entities.User;
-import org.mapstruct.Mapper;
-import org.mapstruct.Mapping;
-import org.mapstruct.MappingTarget;
-import org.mapstruct.BeanMapping;
-import org.mapstruct.NullValuePropertyMappingStrategy;
+import org.mapstruct.*;
 
 @Mapper(componentModel = "spring")
 public interface ExpenseMapper {

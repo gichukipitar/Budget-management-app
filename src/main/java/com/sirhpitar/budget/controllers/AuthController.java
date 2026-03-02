@@ -23,7 +23,7 @@ public class AuthController {
     @PostMapping("/register")
     public Mono<ResponseEntity<ApiResponse<Void>>> register(@Valid @RequestBody RegisterRequestDto dto) {
         return authService.register(dto)
-                .map(v -> ApiResponseUtil.success("Registration successful. Verify your email.", null));
+                .thenReturn(ApiResponseUtil.successVoid("Registration successful. Verify your email."));
     }
 
     @PostMapping("/login")
@@ -44,13 +44,13 @@ public class AuthController {
     @GetMapping("/verify-email")
     public Mono<ResponseEntity<ApiResponse<Void>>> verifyEmail(@RequestParam("token") String token) {
         return authService.verifyEmail(token)
-                .map(v -> ApiResponseUtil.success("Email verified successfully", null));
+                .thenReturn(ApiResponseUtil.successVoid("Email verified successfully"));
     }
 
     @PostMapping("/resend-verification")
     public Mono<ResponseEntity<ApiResponse<Void>>> resendVerification(@Valid @RequestBody ResendVerificationRequestDto dto) {
         return authService.resendVerification(dto.getEmail())
-                .map(v -> ApiResponseUtil.success("Verification email resent", null));
+                .thenReturn(ApiResponseUtil.successVoid("Verification email resent"));
     }
 
     @PostMapping("/refresh")

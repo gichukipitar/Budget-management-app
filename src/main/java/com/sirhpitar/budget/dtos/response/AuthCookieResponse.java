@@ -1,6 +1,7 @@
 package com.sirhpitar.budget.dtos.response;
 
-import lombok.*;
+import lombok.AllArgsConstructor;
+import lombok.Data;
 import org.springframework.http.ResponseCookie;
 
 @Data
