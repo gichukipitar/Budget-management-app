@@ -30,7 +30,6 @@ public class ProfileServiceImpl implements ProfileService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
 
-    // NEW deps
     private final AuthProps authProps;
     private final EmailVerificationService emailVerificationService;
     private final AccountEmailService accountEmailService;
@@ -51,17 +50,17 @@ public class ProfileServiceImpl implements ProfileService {
             StringBuilder changes = new StringBuilder();
 
             if (dto.getFirstName() != null) {
-                String v = dto.getFirstName().trim();
-                if (v.isBlank()) throw new IllegalArgumentException("First name cannot be blank");
-                user.setFirstName(v);
+                String trimmed = dto.getFirstName().trim();
+                if (trimmed.isBlank()) throw new IllegalArgumentException("First name cannot be blank");
+                user.setFirstName(trimmed);
                 changed = true;
                 changes.append("firstName, ");
             }
 
             if (dto.getLastName() != null) {
-                String v = dto.getLastName().trim();
-                if (v.isBlank()) throw new IllegalArgumentException("Last name cannot be blank");
-                user.setLastName(v);
+                String trimmed = dto.getLastName().trim();
+                if (trimmed.isBlank()) throw new IllegalArgumentException("Last name cannot be blank");
+                user.setLastName(trimmed);
                 changed = true;
                 changes.append("lastName, ");
             }
@@ -73,18 +72,18 @@ public class ProfileServiceImpl implements ProfileService {
             }
 
             if (dto.getTimezone() != null) {
-                String v = dto.getTimezone().trim();
-                if (v.isBlank()) throw new IllegalArgumentException("Timezone cannot be blank");
-                user.setTimezone(v);
+                String trimmed = dto.getTimezone().trim();
+                if (trimmed.isBlank()) throw new IllegalArgumentException("Timezone cannot be blank");
+                user.setTimezone(trimmed);
                 changed = true;
                 changes.append("timezone, ");
             }
 
-            // keep this if you still want manual URL updates:
+            // manual URL updates:
             if (dto.getProfilePictureUrl() != null) {
-                String v = dto.getProfilePictureUrl().trim();
-                if (v.isBlank()) user.setProfilePictureUrl(null);
-                else user.setProfilePictureUrl(v);
+                String trimmed = dto.getProfilePictureUrl().trim();
+                if (trimmed.isBlank()) user.setProfilePictureUrl(null);
+                else user.setProfilePictureUrl(trimmed);
                 changed = true;
                 changes.append("profilePictureUrl, ");
             }
@@ -92,8 +91,10 @@ public class ProfileServiceImpl implements ProfileService {
             User saved = userRepository.save(user);
 
             if (changed) {
-                accountEmailService.sendProfileChangedEmail(saved.getEmail(),
-                        "Updated fields: " + (changes.length() > 2 ? changes.substring(0, changes.length() - 2) : "profile"));
+                String updated = (changes.length() > 2)
+                        ? changes.substring(0, changes.length() - 2)
+                        : "profile";
+                accountEmailService.sendProfileChangedEmail(saved.getEmail(), "Updated fields: " + updated);
             }
 
             return toMe(saved);
@@ -122,10 +123,15 @@ public class ProfileServiceImpl implements ProfileService {
     }
 
     @Override
-    public Mono<Void> changeEmail(String email, ChangeEmailRequestDto dto) {
+    public Mono<Void> requestEmailChange(String email, ChangeEmailRequestDto dto) {
         return ReactorBlocking.run(() -> {
             User user = findByEmail(email);
-            String newEmail = dto.getNewEmail().toLowerCase().trim();
+
+            String newEmail = dto.getNewEmail();
+            if (newEmail == null || newEmail.isBlank()) {
+                throw new IllegalArgumentException("New email is required");
+            }
+            newEmail = newEmail.toLowerCase().trim();
 
             if (!passwordEncoder.matches(dto.getPassword(), user.getPassword())) {
                 throw new IllegalArgumentException("Invalid password");
@@ -143,7 +149,7 @@ public class ProfileServiceImpl implements ProfileService {
             // notify old email first (security)
             accountEmailService.sendEmailChangeRequestedOldEmail(oldEmail, newEmail);
 
-            // switch email + force re-verification
+            // switch email + force re-verification (user can't use app until verified)
             user.setEmail(newEmail);
             user.setEmailVerified(false);
             user.setEnabled(false);
@@ -159,6 +165,35 @@ public class ProfileServiceImpl implements ProfileService {
 
             // send verification to NEW email
             emailVerificationService.sendVerificationEmail(saved, token);
+        });
+    }
+
+    @Override
+    public Mono<Void> verifyEmailChange(String token) {
+        return ReactorBlocking.run(() -> {
+            if (token == null || token.isBlank()) {
+                throw new IllegalArgumentException("Verification token is required");
+            }
+
+            User user = userRepository.findByEmailVerificationToken(token.trim())
+                    .orElseThrow(() -> new NotFoundException("Invalid or expired verification token"));
+
+            Instant expiry = user.getEmailVerificationTokenExpiry();
+            if (expiry == null || expiry.isBefore(Instant.now())) {
+                throw new IllegalArgumentException("Verification token expired");
+            }
+
+            user.setEmailVerified(true);
+            user.setEnabled(true);
+
+            // clear token fields
+            user.setEmailVerificationToken(null);
+            user.setEmailVerificationTokenExpiry(null);
+            user.setEmailVerificationSentAt(null);
+
+            userRepository.save(user);
+
+            accountEmailService.sendProfileChangedEmail(user.getEmail(), "Your email address was verified successfully.");
         });
     }
 
@@ -179,7 +214,8 @@ public class ProfileServiceImpl implements ProfileService {
             String storedName = "user-" + user.getId() + "-" + System.currentTimeMillis() + "-" + file.filename();
             Path dest = uploadRoot.resolve(storedName);
 
-            // block because you're using blocking repos
+            // NOTE: file.transferTo(...) is reactive; you're inside a blocking wrapper,
+            // so it's okay to block here, but do it with a timeout if you want extra safety.
             file.transferTo(dest).block();
 
             // You must serve /uploads via static mapping (later). For now store the path:
@@ -226,7 +262,6 @@ public class ProfileServiceImpl implements ProfileService {
     }
 
     private MeResponseDto toMe(User user) {
-        // keep your MeResponseDto minimal, OR expand it if you want
         return new MeResponseDto(user.getId(), user.getUsername(), user.getEmail());
     }
 }
