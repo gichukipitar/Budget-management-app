@@ -9,6 +9,7 @@ public record AuthProps(
         long lockMinutes,
         long verificationTokenMinutes,
         String verificationBaseUrl,
+        String emailChangeBaseUrl,
         String verificationFrom,
         long resendCooldownMinutes,
         int refreshDaysDefault,

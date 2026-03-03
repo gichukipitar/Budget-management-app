@@ -91,9 +91,7 @@ public class ProfileServiceImpl implements ProfileService {
             User saved = userRepository.save(user);
 
             if (changed) {
-                String updated = (changes.length() > 2)
-                        ? changes.substring(0, changes.length() - 2)
-                        : "profile";
+                String updated = (changes.length() > 2) ? changes.substring(0, changes.length() - 2) : "profile";
                 accountEmailService.sendProfileChangedEmail(saved.getEmail(), "Updated fields: " + updated);
             }
 
@@ -156,9 +154,7 @@ public class ProfileServiceImpl implements ProfileService {
 
             String token = UUID.randomUUID().toString();
             user.setEmailVerificationToken(token);
-            user.setEmailVerificationTokenExpiry(
-                    Instant.now().plus(authProps.verificationTokenMinutes(), ChronoUnit.MINUTES)
-            );
+            user.setEmailVerificationTokenExpiry(Instant.now().plus(authProps.verificationTokenMinutes(), ChronoUnit.MINUTES));
             user.setEmailVerificationSentAt(Instant.now());
 
             User saved = userRepository.save(user);
@@ -175,8 +171,7 @@ public class ProfileServiceImpl implements ProfileService {
                 throw new IllegalArgumentException("Verification token is required");
             }
 
-            User user = userRepository.findByEmailVerificationToken(token.trim())
-                    .orElseThrow(() -> new NotFoundException("Invalid or expired verification token"));
+            User user = userRepository.findByEmailVerificationToken(token.trim()).orElseThrow(() -> new NotFoundException("Invalid or expired verification token"));
 
             Instant expiry = user.getEmailVerificationTokenExpiry();
             if (expiry == null || expiry.isBefore(Instant.now())) {
@@ -257,8 +252,7 @@ public class ProfileServiceImpl implements ProfileService {
 
     private User findByEmail(String email) {
         if (email == null || email.isBlank()) throw new IllegalArgumentException("Email is required");
-        return userRepository.findByEmail(email.toLowerCase().trim())
-                .orElseThrow(() -> new NotFoundException("User not found"));
+        return userRepository.findByEmail(email.toLowerCase().trim()).orElseThrow(() -> new NotFoundException("User not found"));
     }
 
     private MeResponseDto toMe(User user) {
