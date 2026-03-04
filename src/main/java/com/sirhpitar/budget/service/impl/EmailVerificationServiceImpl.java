@@ -33,4 +33,25 @@ public class EmailVerificationServiceImpl implements EmailVerificationService {
                 .subscribeOn(Schedulers.boundedElastic())
                 .then();
     }
+
+    @Override
+    public Mono<Void> sendPasswordResetEmail(User user, String rawToken) {
+        return Mono.fromRunnable(() -> {
+                    String link = authProps.resetBaseUrl() + rawToken;
+
+                    SimpleMailMessage msg = new SimpleMailMessage();
+                    msg.setFrom(authProps.verificationFrom());
+                    msg.setTo(user.getEmail());
+                    msg.setSubject("Reset your password");
+                    msg.setText(
+                            "You requested a password reset.\n\n" +
+                                    "Click this link to reset your password: " + link + "\n\n" +
+                                    "If you did not request this, ignore this email."
+                    );
+
+                    mailSender.send(msg); // blocking
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .then();
+    }
 }

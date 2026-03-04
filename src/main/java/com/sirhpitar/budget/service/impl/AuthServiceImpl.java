@@ -72,7 +72,7 @@ public class AuthServiceImpl implements AuthService {
             user.setEmailVerificationSentAt(Instant.now());
 
             User saved = userRepository.save(user);
-            emailVerificationService.sendVerificationEmail(saved, token);
+            emailVerificationService.sendVerificationEmail(saved, token).block();
         });
     }
 
@@ -192,7 +192,7 @@ public class AuthServiceImpl implements AuthService {
             user.setEmailVerificationSentAt(Instant.now());
 
             userRepository.save(user);
-            emailVerificationService.sendVerificationEmail(user, token);
+            emailVerificationService.sendVerificationEmail(user, token).block();
         });
     }
 
@@ -222,7 +222,7 @@ public class AuthServiceImpl implements AuthService {
                 user.setPasswordResetRequestedAt(Instant.now());
 
                 userRepository.save(user);
-                emailVerificationService.sendPasswordResetEmail(user, raw);
+                emailVerificationService.sendPasswordResetEmail(user, raw).block();
             });
 
             // If user not found: do nothing, still success.

@@ -2,9 +2,7 @@ package com.sirhpitar.budget.controllers;
 
 import com.sirhpitar.budget.api_wrappers.ApiResponse;
 import com.sirhpitar.budget.api_wrappers.ApiResponseUtil;
-import com.sirhpitar.budget.dtos.request.LoginRequestDto;
-import com.sirhpitar.budget.dtos.request.RegisterRequestDto;
-import com.sirhpitar.budget.dtos.request.ResendVerificationRequestDto;
+import com.sirhpitar.budget.dtos.request.*;
 import com.sirhpitar.budget.dtos.response.AuthResponseDto;
 import com.sirhpitar.budget.service.AuthService;
 import jakarta.validation.Valid;
@@ -80,5 +78,17 @@ public class AuthController {
                                 .header("Set-Cookie", "refreshToken=; Path=/api/auth; Max-Age=0; HttpOnly; SameSite=Lax")
                                 .body(ApiResponseUtil.successVoid("Logged out").getBody())
                 );
+    }
+
+    @PostMapping("/forgot-password")
+    public Mono<ResponseEntity<ApiResponse<Void>>> forgotPassword(@Valid @RequestBody ForgotPasswordRequestDto dto) {
+        return authService.forgotPassword(dto.getEmail())
+                .thenReturn(ApiResponseUtil.successVoid("Password reset email sent"));
+    }
+
+    @PostMapping("/reset-password")
+    public Mono<ResponseEntity<ApiResponse<Void>>> resetPassword(@Valid @RequestBody ResetPasswordRequestDto dto) {
+        return authService.resetPassword(dto.getToken(), dto.getNewPassword())
+                .thenReturn(ApiResponseUtil.successVoid("Password reset successful"));
     }
 }
