@@ -61,6 +61,9 @@ public class User extends Auditable {
     // Optional: profile picture
     private String profilePictureUrl;
 
+    private String passwordResetTokenHash;
+    private Instant passwordResetTokenExpiry;
+    private Instant passwordResetRequestedAt;
 
     private Instant lockedUntil;
 

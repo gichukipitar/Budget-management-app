@@ -19,10 +19,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseCookie;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
-import org.springframework.security.oauth2.jwt.JwsHeader;
-import org.springframework.security.oauth2.jwt.JwtClaimsSet;
-import org.springframework.security.oauth2.jwt.JwtEncoder;
-import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
+import org.springframework.security.oauth2.jwt.*;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
@@ -32,6 +29,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -52,16 +50,10 @@ public class AuthServiceImpl implements AuthService {
             String email = dto.getEmail().toLowerCase().trim();
             String username = dto.getUsername().trim();
 
-            userRepository.findByEmail(email).ifPresent(u -> {
-                throw new IllegalArgumentException("Email already in use");
-            });
-            userRepository.findByUsername(username).ifPresent(u -> {
-                throw new IllegalArgumentException("Username already in use");
-            });
+            userRepository.findByEmail(email).ifPresent(u -> { throw new IllegalArgumentException("Email already in use"); });
+            userRepository.findByUsername(username).ifPresent(u -> { throw new IllegalArgumentException("Username already in use"); });
 
-            if (!dto.isTermsAccepted()) {
-                throw new IllegalArgumentException("Terms of service must be accepted");
-            }
+            if (!dto.isTermsAccepted()) throw new IllegalArgumentException("Terms of service must be accepted");
 
             User user = new User();
             user.setEmail(email);
@@ -71,15 +63,12 @@ public class AuthServiceImpl implements AuthService {
             user.setLastName(dto.getLastName().trim());
             user.setTermsAccepted(dto.isTermsAccepted());
 
-            // Force verification flow
             user.setEnabled(false);
             user.setEmailVerified(false);
 
             String token = UUID.randomUUID().toString();
             user.setEmailVerificationToken(token);
-            user.setEmailVerificationTokenExpiry(
-                    Instant.now().plus(authProps.verificationTokenMinutes(), ChronoUnit.MINUTES)
-            );
+            user.setEmailVerificationTokenExpiry(Instant.now().plus(authProps.verificationTokenMinutes(), ChronoUnit.MINUTES));
             user.setEmailVerificationSentAt(Instant.now());
 
             User saved = userRepository.save(user);
@@ -87,10 +76,6 @@ public class AuthServiceImpl implements AuthService {
         });
     }
 
-    /**
-     * Issues access token + sets refresh cookie.
-     * Refresh token duration depends on rememberMe and is preserved across refresh rotations.
-     */
     @Override
     public Mono<AuthCookieResponse> login(LoginRequestDto dto) {
         return ReactorBlocking.mono(() -> {
@@ -99,29 +84,18 @@ public class AuthServiceImpl implements AuthService {
             String accessToken = issueAccessToken(user);
 
             boolean rememberMe = dto.isRememberMe();
-            int days = rememberMe
-                    ? authProps.refreshDaysRememberMe()
-                    : authProps.refreshDaysDefault();
+            int days = rememberMe ? authProps.refreshDaysRememberMe() : authProps.refreshDaysDefault();
 
             String refreshRaw = UUID.randomUUID().toString();
             saveRefreshToken(user.getId(), refreshRaw, Instant.now().plus(days, ChronoUnit.DAYS), rememberMe);
 
-            ResponseCookie cookie = buildRefreshCookie(refreshRaw, days);
-
             return new AuthCookieResponse(
                     new AuthResponseDto(accessToken, "Bearer"),
-                    cookie
+                    buildRefreshCookie(refreshRaw, days)
             );
         });
     }
 
-    /**
-     * Rotates refresh token:
-     * - validates existing token (hash lookup)
-     * - revokes old row
-     * - issues new access + new refresh
-     * - IMPORTANT: keeps rememberMe policy from the existing token row
-     */
     @Override
     public Mono<AuthCookieResponse> refresh(String refreshToken) {
         return ReactorBlocking.mono(() -> {
@@ -134,9 +108,7 @@ public class AuthServiceImpl implements AuthService {
             RefreshToken existing = refreshTokenRepository.findByTokenHash(hash)
                     .orElseThrow(() -> new NotFoundException("Invalid refresh token"));
 
-            if (existing.isRevoked()) {
-                throw new IllegalArgumentException("Refresh token revoked");
-            }
+            if (existing.isRevoked()) throw new IllegalArgumentException("Refresh token revoked");
             if (existing.getExpiresAt() == null || existing.getExpiresAt().isBefore(Instant.now())) {
                 throw new IllegalArgumentException("Refresh token expired");
             }
@@ -144,14 +116,12 @@ public class AuthServiceImpl implements AuthService {
             User user = userRepository.findById(existing.getUserId())
                     .orElseThrow(() -> new NotFoundException("User not found"));
 
-            // rotate refresh token
+            // rotate
             existing.setRevoked(true);
             refreshTokenRepository.save(existing);
 
             boolean rememberMe = existing.isRememberMe();
-            int days = rememberMe
-                    ? authProps.refreshDaysRememberMe()
-                    : authProps.refreshDaysDefault();
+            int days = rememberMe ? authProps.refreshDaysRememberMe() : authProps.refreshDaysDefault();
 
             String newRefresh = UUID.randomUUID().toString();
             saveRefreshToken(user.getId(), newRefresh, Instant.now().plus(days, ChronoUnit.DAYS), rememberMe);
@@ -181,24 +151,19 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public Mono<Void> verifyEmail(String token) {
         return ReactorBlocking.run(() -> {
-            if (token == null || token.isBlank()) {
-                throw new IllegalArgumentException("Verification token is required");
-            }
+            if (token == null || token.isBlank()) throw new IllegalArgumentException("Verification token is required");
 
             User user = userRepository.findByEmailVerificationToken(token.trim())
                     .orElseThrow(() -> new NotFoundException("Invalid or expired verification token"));
 
             Instant expiry = user.getEmailVerificationTokenExpiry();
-            if (expiry == null || expiry.isBefore(Instant.now())) {
-                throw new IllegalArgumentException("Verification token expired");
-            }
+            if (expiry == null || expiry.isBefore(Instant.now())) throw new IllegalArgumentException("Verification token expired");
 
             user.setEmailVerified(true);
             user.setEnabled(true);
             user.setEmailVerificationToken(null);
             user.setEmailVerificationTokenExpiry(null);
             user.setEmailVerificationSentAt(null);
-
             userRepository.save(user);
         });
     }
@@ -206,38 +171,92 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public Mono<Void> resendVerification(String email) {
         return ReactorBlocking.run(() -> {
-            if (email == null || email.isBlank()) {
-                throw new IllegalArgumentException("Email is required");
-            }
+            if (email == null || email.isBlank()) throw new IllegalArgumentException("Email is required");
 
             User user = userRepository.findByEmail(email.toLowerCase().trim())
                     .orElseThrow(() -> new NotFoundException("User not found"));
 
-            if (user.isEmailVerified()) {
-                throw new IllegalArgumentException("Email already verified");
-            }
+            if (user.isEmailVerified()) throw new IllegalArgumentException("Email already verified");
 
-            // cooldown
             if (user.getEmailVerificationSentAt() != null && authProps.resendCooldownMinutes() > 0) {
                 Instant nextAllowed = user.getEmailVerificationSentAt()
                         .plus(authProps.resendCooldownMinutes(), ChronoUnit.MINUTES);
-
                 if (nextAllowed.isAfter(Instant.now())) {
-                    throw new TooManyRequestsException(
-                            "Verification email recently sent. Please try again later."
-                    );
+                    throw new TooManyRequestsException("Verification email recently sent. Please try again later.");
                 }
             }
 
             String token = UUID.randomUUID().toString();
             user.setEmailVerificationToken(token);
-            user.setEmailVerificationTokenExpiry(
-                    Instant.now().plus(authProps.verificationTokenMinutes(), ChronoUnit.MINUTES)
-            );
+            user.setEmailVerificationTokenExpiry(Instant.now().plus(authProps.verificationTokenMinutes(), ChronoUnit.MINUTES));
             user.setEmailVerificationSentAt(Instant.now());
 
             userRepository.save(user);
             emailVerificationService.sendVerificationEmail(user, token);
+        });
+    }
+
+    // -------------------- PASSWORD RESET --------------------
+
+    @Override
+    public Mono<Void> forgotPassword(String email) {
+        return ReactorBlocking.run(() -> {
+            if (email == null || email.isBlank()) {
+                // still behave like success (avoid enumeration), but validation should catch this anyway
+                return;
+            }
+
+            userRepository.findByEmail(email.toLowerCase().trim()).ifPresent(user -> {
+                // cooldown
+                if (user.getPasswordResetRequestedAt() != null && authProps.resetCooldownMinutes() > 0) {
+                    Instant nextAllowed = user.getPasswordResetRequestedAt()
+                            .plus(authProps.resetCooldownMinutes(), ChronoUnit.MINUTES);
+                    if (nextAllowed.isAfter(Instant.now())) {
+                        throw new TooManyRequestsException("Password reset recently requested. Please try again later.");
+                    }
+                }
+
+                String raw = UUID.randomUUID().toString();
+                user.setPasswordResetTokenHash(sha256(raw));
+                user.setPasswordResetTokenExpiry(Instant.now().plus(authProps.resetTokenMinutes(), ChronoUnit.MINUTES));
+                user.setPasswordResetRequestedAt(Instant.now());
+
+                userRepository.save(user);
+                emailVerificationService.sendPasswordResetEmail(user, raw);
+            });
+
+            // If user not found: do nothing, still success.
+        });
+    }
+
+    @Override
+    public Mono<Void> resetPassword(String token, String newPassword) {
+        return ReactorBlocking.run(() -> {
+            if (token == null || token.isBlank()) throw new IllegalArgumentException("Reset token is required");
+            if (newPassword == null || newPassword.isBlank()) throw new IllegalArgumentException("New password is required");
+
+            String hash = sha256(token.trim());
+
+            User user = userRepository.findByPasswordResetTokenHash(hash)
+                    .orElseThrow(() -> new NotFoundException("Invalid or expired reset token"));
+
+            if (user.getPasswordResetTokenExpiry() == null || user.getPasswordResetTokenExpiry().isBefore(Instant.now())) {
+                throw new IllegalArgumentException("Reset token expired");
+            }
+
+            user.setPassword(passwordEncoder.encode(newPassword));
+            user.setPasswordResetTokenHash(null);
+            user.setPasswordResetTokenExpiry(null);
+            user.setPasswordResetRequestedAt(null);
+
+            userRepository.save(user);
+
+            // Security: revoke all refresh tokens (logout all devices)
+            List<RefreshToken> tokens = refreshTokenRepository.findAllByUserIdAndRevokedFalse(user.getId());
+            for (RefreshToken t : tokens) {
+                t.setRevoked(true);
+            }
+            refreshTokenRepository.saveAll(tokens);
         });
     }
 
@@ -284,7 +303,6 @@ public class AuthServiceImpl implements AuthService {
         t.setTokenHash(sha256(rawToken));
         t.setExpiresAt(expiresAt);
         t.setRevoked(false);
-        // IMPORTANT: requires RefreshToken entity to have rememberMe boolean + getters/setters
         t.setRememberMe(rememberMe);
         refreshTokenRepository.save(t);
     }
@@ -292,7 +310,7 @@ public class AuthServiceImpl implements AuthService {
     private ResponseCookie buildRefreshCookie(String raw, int days) {
         return ResponseCookie.from("refreshToken", raw)
                 .httpOnly(true)
-                .secure(false) // set true in prod (HTTPS)
+                .secure(false) // true in prod (HTTPS)
                 .sameSite("Lax")
                 .path("/api/auth")
                 .maxAge(Duration.ofDays(days))
@@ -325,8 +343,6 @@ public class AuthServiceImpl implements AuthService {
 
         JwsHeader headers = JwsHeader.with(MacAlgorithm.HS256).build();
 
-        return jwtEncoder
-                .encode(JwtEncoderParameters.from(headers, claims))
-                .getTokenValue();
+        return jwtEncoder.encode(JwtEncoderParameters.from(headers, claims)).getTokenValue();
     }
 }

@@ -17,5 +17,11 @@ public interface AuthService {
     Mono<Void> logout(String refreshToken);
 
     Mono<Void> verifyEmail(String token);
+
     Mono<Void> resendVerification(String email);
+
+    Mono<Void> forgotPassword(String email);
+
+    Mono<Void> resetPassword(String token, String newPassword);
+
 }

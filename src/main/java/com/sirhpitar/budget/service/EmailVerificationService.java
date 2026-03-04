@@ -5,4 +5,5 @@ import reactor.core.publisher.Mono;
 
 public interface EmailVerificationService {
     Mono<Void> sendVerificationEmail(User user, String token);
+    Mono<Void> sendPasswordResetEmail(User user, String rawToken);
 }

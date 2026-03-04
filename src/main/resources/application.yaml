@@ -11,7 +11,9 @@ app:
       verification-base-url: "http://localhost:8080/api/auth/verify-email?token="
       verification-from: "no-reply@budget-app.local"
       email-change-base-url: "http://localhost:8080/api/profile/verify-email-change?token="
+      reset-base-url: "http://localhost:8080/api/auth/reset-password?token="
       resend-cooldown-minutes: 5
+      reset-token-minutes: 30
       refresh-days-default: 1
       refresh-days-remember-me: 30
 

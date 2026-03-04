@@ -13,5 +13,8 @@ public record AuthProps(
         String verificationFrom,
         long resendCooldownMinutes,
         int refreshDaysDefault,
-        int refreshDaysRememberMe
+        int refreshDaysRememberMe,
+        int resetTokenMinutes,
+        long resetCooldownMinutes,
+        String resetBaseUrl
 ) {}
