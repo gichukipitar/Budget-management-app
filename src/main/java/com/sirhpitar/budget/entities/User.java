@@ -65,6 +65,11 @@ public class User extends Auditable {
     private Instant passwordResetTokenExpiry;
     private Instant passwordResetRequestedAt;
 
+    @Column(nullable = false)
+    private boolean twoFactorEnabled = false;
+
+    private String twoFactorSecret; // store securely if you can (encryption recommended)
+
     private Instant lockedUntil;
 
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)

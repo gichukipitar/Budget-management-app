@@ -8,4 +8,6 @@ import lombok.Data;
 public class AuthResponseDto {
     private String accessToken;
     private String tokenType;
+    private boolean mfaRequired;
+    private String loginChallengeToken;
 }

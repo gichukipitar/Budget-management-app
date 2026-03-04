@@ -4,10 +4,13 @@ import com.sirhpitar.budget.api_wrappers.ApiResponse;
 import com.sirhpitar.budget.api_wrappers.ApiResponseUtil;
 import com.sirhpitar.budget.dtos.request.*;
 import com.sirhpitar.budget.dtos.response.AuthResponseDto;
+import com.sirhpitar.budget.dtos.response.Setup2faResponseDto;
 import com.sirhpitar.budget.service.AuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 
@@ -31,12 +34,58 @@ public class AuthController {
                     ResponseEntity<ApiResponse<AuthResponseDto>> base =
                             ApiResponseUtil.success("Login successful", r.getBody());
 
+                    // if no refresh cookie (MFA required), just return base
+                    if (r.getRefreshCookie() == null) {
+                        return ResponseEntity
+                                .status(base.getStatusCode())
+                                .headers(base.getHeaders())
+                                .body(base.getBody());
+                    }
+
                     return ResponseEntity
                             .status(base.getStatusCode())
                             .headers(base.getHeaders())
                             .header("Set-Cookie", r.getRefreshCookie().toString())
                             .body(base.getBody());
                 });
+    }
+
+    @PostMapping("/2fa/verify-login")
+    public Mono<ResponseEntity<ApiResponse<AuthResponseDto>>> verifyLogin2fa(@Valid @RequestBody VerifyLogin2faRequestDto dto) {
+        return authService.verifyLogin2fa(dto.getLoginChallengeToken(), dto.getCode())
+                .map(r -> {
+                    ResponseEntity<ApiResponse<AuthResponseDto>> base =
+                            ApiResponseUtil.success("Login successful", r.getBody());
+
+                    return ResponseEntity
+                            .status(base.getStatusCode())
+                            .headers(base.getHeaders())
+                            .header("Set-Cookie", r.getRefreshCookie().toString())
+                            .body(base.getBody());
+                });
+    }
+
+    @PostMapping("/2fa/setup")
+    public Mono<ResponseEntity<ApiResponse<Setup2faResponseDto>>> setup2fa(@AuthenticationPrincipal Jwt jwt) {
+        Long userId = Long.parseLong(jwt.getSubject());
+        return authService.setup2fa(userId)
+                .map(r -> ApiResponseUtil.success("2FA setup generated", r));
+    }
+
+    @PostMapping("/2fa/confirm")
+    public Mono<ResponseEntity<ApiResponse<Void>>> confirm2fa(@AuthenticationPrincipal Jwt jwt,
+                                                              @Valid @RequestBody Confirm2faRequestDto dto) {
+        Long userId = Long.parseLong(jwt.getSubject());
+        return authService.confirm2fa(userId, dto.getCode())
+                .thenReturn(ApiResponseUtil.successVoid("2FA enabled successfully"));
+    }
+
+    @PostMapping("/2fa/disable")
+    public Mono<ResponseEntity<ApiResponse<Void>>> disable2fa(@AuthenticationPrincipal Jwt jwt,
+                                                              @Valid @RequestBody Disable2faRequestDto dto) {
+        Long userId = Long.parseLong(jwt.getSubject());
+        return authService.disable2fa(userId, dto.getPassword(), dto.getCode())
+                .thenReturn(ApiResponseUtil.successVoid("2FA disabled successfully"));
     }
 
     @GetMapping("/verify-email")

@@ -6,6 +6,7 @@ import com.sirhpitar.budget.dtos.request.LoginRequestDto;
 import com.sirhpitar.budget.dtos.request.RegisterRequestDto;
 import com.sirhpitar.budget.dtos.response.AuthCookieResponse;
 import com.sirhpitar.budget.dtos.response.AuthResponseDto;
+import com.sirhpitar.budget.dtos.response.Setup2faResponseDto;
 import com.sirhpitar.budget.entities.RefreshToken;
 import com.sirhpitar.budget.entities.User;
 import com.sirhpitar.budget.exceptions.NotFoundException;
@@ -19,7 +20,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseCookie;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
-import org.springframework.security.oauth2.jwt.*;
+import org.springframework.security.oauth2.jwt.JwsHeader;
+import org.springframework.security.oauth2.jwt.JwtClaimsSet;
+import org.springframework.security.oauth2.jwt.JwtEncoder;
+import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
@@ -68,10 +72,14 @@ public class AuthServiceImpl implements AuthService {
 
             String token = UUID.randomUUID().toString();
             user.setEmailVerificationToken(token);
-            user.setEmailVerificationTokenExpiry(Instant.now().plus(authProps.verificationTokenMinutes(), ChronoUnit.MINUTES));
+            user.setEmailVerificationTokenExpiry(
+                    Instant.now().plus(authProps.verificationTokenMinutes(), ChronoUnit.MINUTES)
+            );
             user.setEmailVerificationSentAt(Instant.now());
 
             User saved = userRepository.save(user);
+
+            // NOTE: this blocks; acceptable with your current ReactorBlocking + JPA approach
             emailVerificationService.sendVerificationEmail(saved, token).block();
         });
     }
@@ -80,6 +88,11 @@ public class AuthServiceImpl implements AuthService {
     public Mono<AuthCookieResponse> login(LoginRequestDto dto) {
         return ReactorBlocking.mono(() -> {
             User user = authenticate(dto);
+
+            // TODO: When 2FA is implemented:
+            // if (user.isMfaEnabled()) return AuthResponseDto(null, "Bearer", true, challengeToken) and no cookie.
+            boolean mfaRequired = false;
+            String loginChallengeToken = null;
 
             String accessToken = issueAccessToken(user);
 
@@ -90,7 +103,7 @@ public class AuthServiceImpl implements AuthService {
             saveRefreshToken(user.getId(), refreshRaw, Instant.now().plus(days, ChronoUnit.DAYS), rememberMe);
 
             return new AuthCookieResponse(
-                    new AuthResponseDto(accessToken, "Bearer"),
+                    new AuthResponseDto(accessToken, "Bearer", mfaRequired, loginChallengeToken),
                     buildRefreshCookie(refreshRaw, days)
             );
         });
@@ -129,7 +142,7 @@ public class AuthServiceImpl implements AuthService {
             String newAccess = issueAccessToken(user);
 
             return new AuthCookieResponse(
-                    new AuthResponseDto(newAccess, "Bearer"),
+                    new AuthResponseDto(newAccess, "Bearer", false, null),
                     buildRefreshCookie(newRefresh, days)
             );
         });
@@ -164,6 +177,7 @@ public class AuthServiceImpl implements AuthService {
             user.setEmailVerificationToken(null);
             user.setEmailVerificationTokenExpiry(null);
             user.setEmailVerificationSentAt(null);
+
             userRepository.save(user);
         });
     }
@@ -188,7 +202,9 @@ public class AuthServiceImpl implements AuthService {
 
             String token = UUID.randomUUID().toString();
             user.setEmailVerificationToken(token);
-            user.setEmailVerificationTokenExpiry(Instant.now().plus(authProps.verificationTokenMinutes(), ChronoUnit.MINUTES));
+            user.setEmailVerificationTokenExpiry(
+                    Instant.now().plus(authProps.verificationTokenMinutes(), ChronoUnit.MINUTES)
+            );
             user.setEmailVerificationSentAt(Instant.now());
 
             userRepository.save(user);
@@ -201,13 +217,9 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public Mono<Void> forgotPassword(String email) {
         return ReactorBlocking.run(() -> {
-            if (email == null || email.isBlank()) {
-                // still behave like success (avoid enumeration), but validation should catch this anyway
-                return;
-            }
+            if (email == null || email.isBlank()) return;
 
             userRepository.findByEmail(email.toLowerCase().trim()).ifPresent(user -> {
-                // cooldown
                 if (user.getPasswordResetRequestedAt() != null && authProps.resetCooldownMinutes() > 0) {
                     Instant nextAllowed = user.getPasswordResetRequestedAt()
                             .plus(authProps.resetCooldownMinutes(), ChronoUnit.MINUTES);
@@ -218,14 +230,14 @@ public class AuthServiceImpl implements AuthService {
 
                 String raw = UUID.randomUUID().toString();
                 user.setPasswordResetTokenHash(sha256(raw));
-                user.setPasswordResetTokenExpiry(Instant.now().plus(authProps.resetTokenMinutes(), ChronoUnit.MINUTES));
+                user.setPasswordResetTokenExpiry(
+                        Instant.now().plus(authProps.resetTokenMinutes(), ChronoUnit.MINUTES)
+                );
                 user.setPasswordResetRequestedAt(Instant.now());
 
                 userRepository.save(user);
                 emailVerificationService.sendPasswordResetEmail(user, raw).block();
             });
-
-            // If user not found: do nothing, still success.
         });
     }
 
@@ -251,13 +263,48 @@ public class AuthServiceImpl implements AuthService {
 
             userRepository.save(user);
 
-            // Security: revoke all refresh tokens (logout all devices)
+            // logout everywhere: revoke all active refresh tokens
             List<RefreshToken> tokens = refreshTokenRepository.findAllByUserIdAndRevokedFalse(user.getId());
             for (RefreshToken t : tokens) {
                 t.setRevoked(true);
             }
             refreshTokenRepository.saveAll(tokens);
         });
+    }
+
+    // -------------------- 2FA (stubs that compile) --------------------
+    // These compile, but will throw until you add:
+    // - somewhere to store a TOTP secret per user
+    // - somewhere to store + validate a loginChallengeToken
+    // - and the actual TOTP verification logic (code check)
+
+    @Override
+    public Mono<Setup2faResponseDto> setup2fa(Long userId) {
+        return Mono.error(new UnsupportedOperationException(
+                "setup2fa not implemented yet: add User fields (mfaSecret/mfaEnabled) or a separate 2FA table, " +
+                        "then generate a TOTP secret + return Setup2faResponseDto (qr/otpauth)."
+        ));
+    }
+
+    @Override
+    public Mono<Void> confirm2fa(Long userId, String code) {
+        return Mono.error(new UnsupportedOperationException(
+                "confirm2fa not implemented yet: verify TOTP code against stored secret, then enable MFA."
+        ));
+    }
+
+    @Override
+    public Mono<AuthCookieResponse> verifyLogin2fa(String loginChallengeToken, String code) {
+        return Mono.error(new UnsupportedOperationException(
+                "verifyLogin2fa not implemented yet: validate challenge token + code, then issue access token + refresh cookie."
+        ));
+    }
+
+    @Override
+    public Mono<Void> disable2fa(Long userId, String password, String code) {
+        return Mono.error(new UnsupportedOperationException(
+                "disable2fa not implemented yet: verify password + TOTP code, then disable MFA and clear secret."
+        ));
     }
 
     // -------------------- helpers --------------------
