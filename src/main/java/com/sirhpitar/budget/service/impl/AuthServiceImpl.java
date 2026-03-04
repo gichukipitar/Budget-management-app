@@ -7,10 +7,12 @@ import com.sirhpitar.budget.dtos.request.RegisterRequestDto;
 import com.sirhpitar.budget.dtos.response.AuthCookieResponse;
 import com.sirhpitar.budget.dtos.response.AuthResponseDto;
 import com.sirhpitar.budget.dtos.response.Setup2faResponseDto;
+import com.sirhpitar.budget.entities.LoginChallenge;
 import com.sirhpitar.budget.entities.RefreshToken;
 import com.sirhpitar.budget.entities.User;
 import com.sirhpitar.budget.exceptions.NotFoundException;
 import com.sirhpitar.budget.exceptions.TooManyRequestsException;
+import com.sirhpitar.budget.repository.LoginChallengeRepository;
 import com.sirhpitar.budget.repository.RefreshTokenRepository;
 import com.sirhpitar.budget.repository.UserRepository;
 import com.sirhpitar.budget.service.AuthService;
@@ -27,6 +29,9 @@ import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Duration;
@@ -40,8 +45,14 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class AuthServiceImpl implements AuthService {
 
+    private static final long LOGIN_CHALLENGE_MINUTES = 10; // can move to AuthProps later
+    private static final int TOTP_STEP_SECONDS = 30;
+    private static final int TOTP_DIGITS = 6;
+    private static final int TOTP_WINDOW_STEPS = 1; // allow +/- 1 step clock skew
+
     private final UserRepository userRepository;
     private final RefreshTokenRepository refreshTokenRepository;
+    private final LoginChallengeRepository loginChallengeRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtEncoder jwtEncoder;
     private final JwtProps jwtProps;
@@ -72,38 +83,58 @@ public class AuthServiceImpl implements AuthService {
 
             String token = UUID.randomUUID().toString();
             user.setEmailVerificationToken(token);
-            user.setEmailVerificationTokenExpiry(
-                    Instant.now().plus(authProps.verificationTokenMinutes(), ChronoUnit.MINUTES)
-            );
+            user.setEmailVerificationTokenExpiry(Instant.now().plus(authProps.verificationTokenMinutes(), ChronoUnit.MINUTES));
             user.setEmailVerificationSentAt(Instant.now());
 
             User saved = userRepository.save(user);
 
-            // NOTE: this blocks; acceptable with your current ReactorBlocking + JPA approach
+            // this call returns Mono; since we're already on a blocking thread wrapper, we can block
             emailVerificationService.sendVerificationEmail(saved, token).block();
         });
     }
 
+    /**
+     * Login behavior:
+     * - if 2FA disabled: issue access token + refresh cookie (normal)
+     * - if 2FA enabled: return AuthResponseDto(mfaRequired=true, loginChallengeToken=...) and NO refresh cookie
+     */
     @Override
     public Mono<AuthCookieResponse> login(LoginRequestDto dto) {
         return ReactorBlocking.mono(() -> {
             User user = authenticate(dto);
 
-            // TODO: When 2FA is implemented:
-            // if (user.isMfaEnabled()) return AuthResponseDto(null, "Bearer", true, challengeToken) and no cookie.
-            boolean mfaRequired = false;
-            String loginChallengeToken = null;
+            boolean rememberMe = dto.isRememberMe();
 
+            if (user.isTwoFactorEnabled()) {
+                // create login challenge token (DB-backed)
+                String rawChallenge = UUID.randomUUID().toString();
+                LoginChallenge c = new LoginChallenge();
+                c.setUserId(user.getId());
+                c.setTokenHash(sha256(rawChallenge));
+                c.setRememberMe(rememberMe);
+                c.setExpiresAt(Instant.now().plus(LOGIN_CHALLENGE_MINUTES, ChronoUnit.MINUTES));
+                c.setUsed(false);
+                loginChallengeRepository.save(c);
+
+                AuthResponseDto body = new AuthResponseDto(
+                        null,
+                        "Bearer",
+                        true,
+                        rawChallenge
+                );
+
+                return new AuthCookieResponse(body, null);
+            }
+
+            // normal login (no MFA)
             String accessToken = issueAccessToken(user);
 
-            boolean rememberMe = dto.isRememberMe();
             int days = rememberMe ? authProps.refreshDaysRememberMe() : authProps.refreshDaysDefault();
-
             String refreshRaw = UUID.randomUUID().toString();
             saveRefreshToken(user.getId(), refreshRaw, Instant.now().plus(days, ChronoUnit.DAYS), rememberMe);
 
             return new AuthCookieResponse(
-                    new AuthResponseDto(accessToken, "Bearer", mfaRequired, loginChallengeToken),
+                    new AuthResponseDto(accessToken, "Bearer", false, null),
                     buildRefreshCookie(refreshRaw, days)
             );
         });
@@ -177,7 +208,6 @@ public class AuthServiceImpl implements AuthService {
             user.setEmailVerificationToken(null);
             user.setEmailVerificationTokenExpiry(null);
             user.setEmailVerificationSentAt(null);
-
             userRepository.save(user);
         });
     }
@@ -202,9 +232,7 @@ public class AuthServiceImpl implements AuthService {
 
             String token = UUID.randomUUID().toString();
             user.setEmailVerificationToken(token);
-            user.setEmailVerificationTokenExpiry(
-                    Instant.now().plus(authProps.verificationTokenMinutes(), ChronoUnit.MINUTES)
-            );
+            user.setEmailVerificationTokenExpiry(Instant.now().plus(authProps.verificationTokenMinutes(), ChronoUnit.MINUTES));
             user.setEmailVerificationSentAt(Instant.now());
 
             userRepository.save(user);
@@ -217,7 +245,7 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public Mono<Void> forgotPassword(String email) {
         return ReactorBlocking.run(() -> {
-            if (email == null || email.isBlank()) return;
+            if (email == null || email.isBlank()) return; // anti-enumeration
 
             userRepository.findByEmail(email.toLowerCase().trim()).ifPresent(user -> {
                 if (user.getPasswordResetRequestedAt() != null && authProps.resetCooldownMinutes() > 0) {
@@ -230,9 +258,7 @@ public class AuthServiceImpl implements AuthService {
 
                 String raw = UUID.randomUUID().toString();
                 user.setPasswordResetTokenHash(sha256(raw));
-                user.setPasswordResetTokenExpiry(
-                        Instant.now().plus(authProps.resetTokenMinutes(), ChronoUnit.MINUTES)
-                );
+                user.setPasswordResetTokenExpiry(Instant.now().plus(authProps.resetTokenMinutes(), ChronoUnit.MINUTES));
                 user.setPasswordResetRequestedAt(Instant.now());
 
                 userRepository.save(user);
@@ -260,51 +286,127 @@ public class AuthServiceImpl implements AuthService {
             user.setPasswordResetTokenHash(null);
             user.setPasswordResetTokenExpiry(null);
             user.setPasswordResetRequestedAt(null);
-
             userRepository.save(user);
 
-            // logout everywhere: revoke all active refresh tokens
-            List<RefreshToken> tokens = refreshTokenRepository.findAllByUserIdAndRevokedFalse(user.getId());
-            for (RefreshToken t : tokens) {
-                t.setRevoked(true);
-            }
-            refreshTokenRepository.saveAll(tokens);
+            // log out all devices
+            refreshTokenRepository.revokeAllActiveByUserId(user.getId());
         });
     }
 
-    // -------------------- 2FA (stubs that compile) --------------------
-    // These compile, but will throw until you add:
-    // - somewhere to store a TOTP secret per user
-    // - somewhere to store + validate a loginChallengeToken
-    // - and the actual TOTP verification logic (code check)
+    // -------------------- 2FA (TOTP) --------------------
 
     @Override
     public Mono<Setup2faResponseDto> setup2fa(Long userId) {
-        return Mono.error(new UnsupportedOperationException(
-                "setup2fa not implemented yet: add User fields (mfaSecret/mfaEnabled) or a separate 2FA table, " +
-                        "then generate a TOTP secret + return Setup2faResponseDto (qr/otpauth)."
-        ));
+        return ReactorBlocking.mono(() -> {
+            User user = userRepository.findById(userId)
+                    .orElseThrow(() -> new NotFoundException("User not found"));
+
+            // generate a new secret every time setup is called
+            String secretBase32 = generateBase32Secret(20); // 160-bit-ish
+            user.setTwoFactorSecret(secretBase32);
+            user.setTwoFactorEnabled(false);
+            userRepository.save(user);
+
+            String issuer = jwtProps.issuer(); // shows in authenticator app
+            String label = issuer + ":" + user.getEmail();
+            String otpAuthUrl = buildOtpAuthUrl(label, secretBase32, issuer);
+
+            return new Setup2faResponseDto(otpAuthUrl);
+        });
     }
 
     @Override
     public Mono<Void> confirm2fa(Long userId, String code) {
-        return Mono.error(new UnsupportedOperationException(
-                "confirm2fa not implemented yet: verify TOTP code against stored secret, then enable MFA."
-        ));
+        return ReactorBlocking.run(() -> {
+            User user = userRepository.findById(userId)
+                    .orElseThrow(() -> new NotFoundException("User not found"));
+
+            if (user.getTwoFactorSecret() == null || user.getTwoFactorSecret().isBlank()) {
+                throw new IllegalArgumentException("2FA setup not started");
+            }
+
+            if (!verifyTotp(user.getTwoFactorSecret(), code)) {
+                throw new IllegalArgumentException("Invalid 2FA code");
+            }
+
+            user.setTwoFactorEnabled(true);
+            userRepository.save(user);
+        });
     }
 
     @Override
     public Mono<AuthCookieResponse> verifyLogin2fa(String loginChallengeToken, String code) {
-        return Mono.error(new UnsupportedOperationException(
-                "verifyLogin2fa not implemented yet: validate challenge token + code, then issue access token + refresh cookie."
-        ));
+        return ReactorBlocking.mono(() -> {
+            if (loginChallengeToken == null || loginChallengeToken.isBlank()) {
+                throw new IllegalArgumentException("loginChallengeToken is required");
+            }
+
+            String hash = sha256(loginChallengeToken.trim());
+
+            LoginChallenge c = loginChallengeRepository.findByTokenHash(hash)
+                    .orElseThrow(() -> new NotFoundException("Invalid login challenge token"));
+
+            if (c.isUsed()) throw new IllegalArgumentException("Login challenge already used");
+            if (c.getExpiresAt() == null || c.getExpiresAt().isBefore(Instant.now())) {
+                throw new IllegalArgumentException("Login challenge expired");
+            }
+
+            User user = userRepository.findById(c.getUserId())
+                    .orElseThrow(() -> new NotFoundException("User not found"));
+
+            if (!user.isTwoFactorEnabled() || user.getTwoFactorSecret() == null) {
+                throw new IllegalArgumentException("2FA is not enabled on this account");
+            }
+
+            if (!verifyTotp(user.getTwoFactorSecret(), code)) {
+                throw new IllegalArgumentException("Invalid 2FA code");
+            }
+
+            // mark used
+            c.setUsed(true);
+            loginChallengeRepository.save(c);
+
+            // issue tokens
+            String accessToken = issueAccessToken(user);
+
+            boolean rememberMe = c.isRememberMe();
+            int days = rememberMe ? authProps.refreshDaysRememberMe() : authProps.refreshDaysDefault();
+
+            String refreshRaw = UUID.randomUUID().toString();
+            saveRefreshToken(user.getId(), refreshRaw, Instant.now().plus(days, ChronoUnit.DAYS), rememberMe);
+
+            return new AuthCookieResponse(
+                    new AuthResponseDto(accessToken, "Bearer", false, null),
+                    buildRefreshCookie(refreshRaw, days)
+            );
+        });
     }
 
     @Override
     public Mono<Void> disable2fa(Long userId, String password, String code) {
-        return Mono.error(new UnsupportedOperationException(
-                "disable2fa not implemented yet: verify password + TOTP code, then disable MFA and clear secret."
-        ));
+        return ReactorBlocking.run(() -> {
+            User user = userRepository.findById(userId)
+                    .orElseThrow(() -> new NotFoundException("User not found"));
+
+            if (!passwordEncoder.matches(password, user.getPassword())) {
+                throw new NotFoundException("Invalid credentials");
+            }
+
+            if (!user.isTwoFactorEnabled() || user.getTwoFactorSecret() == null) {
+                throw new IllegalArgumentException("2FA is not enabled");
+            }
+
+            if (!verifyTotp(user.getTwoFactorSecret(), code)) {
+                throw new IllegalArgumentException("Invalid 2FA code");
+            }
+
+            user.setTwoFactorEnabled(false);
+            user.setTwoFactorSecret(null);
+            userRepository.save(user);
+
+            // log out all devices
+            refreshTokenRepository.revokeAllActiveByUserId(userId);
+        });
     }
 
     // -------------------- helpers --------------------
@@ -389,7 +491,136 @@ public class AuthServiceImpl implements AuthService {
                 .build();
 
         JwsHeader headers = JwsHeader.with(MacAlgorithm.HS256).build();
-
         return jwtEncoder.encode(JwtEncoderParameters.from(headers, claims)).getTokenValue();
+    }
+
+    // -------------------- TOTP (no dependency) --------------------
+
+    private boolean verifyTotp(String secretBase32, String code) {
+        if (code == null) return false;
+        String trimmed = code.trim();
+        if (!trimmed.matches("^\\d{6}$")) return false;
+
+        long nowSeconds = Instant.now().getEpochSecond();
+        long counter = nowSeconds / TOTP_STEP_SECONDS;
+
+        for (int i = -TOTP_WINDOW_STEPS; i <= TOTP_WINDOW_STEPS; i++) {
+            String expected = totpAt(secretBase32, counter + i);
+            if (expected.equals(trimmed)) return true;
+        }
+        return false;
+    }
+
+    private String totpAt(String secretBase32, long counter) {
+        byte[] key = base32Decode(secretBase32);
+        byte[] msg = new byte[8];
+        long v = counter;
+        for (int i = 7; i >= 0; i--) {
+            msg[i] = (byte) (v & 0xFF);
+            v >>= 8;
+        }
+
+        byte[] hmac = hmacSha1(key, msg);
+        int offset = hmac[hmac.length - 1] & 0x0F;
+
+        int binary =
+                ((hmac[offset] & 0x7F) << 24) |
+                        ((hmac[offset + 1] & 0xFF) << 16) |
+                        ((hmac[offset + 2] & 0xFF) << 8) |
+                        (hmac[offset + 3] & 0xFF);
+
+        int otp = binary % (int) Math.pow(10, TOTP_DIGITS);
+        return String.format("%0" + TOTP_DIGITS + "d", otp);
+    }
+
+    private byte[] hmacSha1(byte[] key, byte[] data) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA1");
+            mac.init(new SecretKeySpec(key, "HmacSHA1"));
+            return mac.doFinal(data);
+        } catch (Exception e) {
+            throw new RuntimeException("HMAC error", e);
+        }
+    }
+
+    private String generateBase32Secret(int bytesLen) {
+        byte[] bytes = new byte[bytesLen];
+        for (int i = 0; i < bytesLen; i++) {
+            bytes[i] = (byte) (int) (Math.random() * 256);
+        }
+        return base32Encode(bytes);
+    }
+
+    private String base32Encode(byte[] data) {
+        final char[] alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567".toCharArray();
+        StringBuilder out = new StringBuilder();
+
+        int buffer = 0;
+        int bitsLeft = 0;
+
+        for (byte b : data) {
+            buffer <<= 8;
+            buffer |= (b & 0xFF);
+            bitsLeft += 8;
+
+            while (bitsLeft >= 5) {
+                int index = (buffer >> (bitsLeft - 5)) & 0x1F;
+                bitsLeft -= 5;
+                out.append(alphabet[index]);
+            }
+        }
+
+        if (bitsLeft > 0) {
+            int index = (buffer << (5 - bitsLeft)) & 0x1F;
+            out.append(alphabet[index]);
+        }
+
+        return out.toString();
+    }
+
+    private byte[] base32Decode(String s) {
+        String input = s.replace("=", "").trim().toUpperCase();
+        final String alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+
+        int buffer = 0;
+        int bitsLeft = 0;
+
+        byte[] out = new byte[input.length() * 5 / 8];
+        int outPos = 0;
+
+        for (int i = 0; i < input.length(); i++) {
+            char c = input.charAt(i);
+            int val = alphabet.indexOf(c);
+            if (val < 0) continue;
+
+            buffer <<= 5;
+            buffer |= val & 0x1F;
+            bitsLeft += 5;
+
+            if (bitsLeft >= 8) {
+                out[outPos++] = (byte) ((buffer >> (bitsLeft - 8)) & 0xFF);
+                bitsLeft -= 8;
+            }
+        }
+
+        if (outPos == out.length) return out;
+
+        byte[] trimmed = new byte[outPos];
+        System.arraycopy(out, 0, trimmed, 0, outPos);
+        return trimmed;
+    }
+
+    private String buildOtpAuthUrl(String label, String secret, String issuer) {
+        try {
+            String encLabel = URLEncoder.encode(label, StandardCharsets.UTF_8);
+            String encIssuer = URLEncoder.encode(issuer, StandardCharsets.UTF_8);
+            return "otpauth://totp/" + encLabel +
+                    "?secret=" + secret +
+                    "&issuer=" + encIssuer +
+                    "&algorithm=SHA1&digits=" + TOTP_DIGITS +
+                    "&period=" + TOTP_STEP_SECONDS;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to build otpauth URL", e);
+        }
     }
 }
