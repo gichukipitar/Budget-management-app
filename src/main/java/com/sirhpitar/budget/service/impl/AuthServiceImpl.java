@@ -10,6 +10,7 @@ import com.sirhpitar.budget.dtos.response.Setup2faResponseDto;
 import com.sirhpitar.budget.entities.LoginChallenge;
 import com.sirhpitar.budget.entities.RefreshToken;
 import com.sirhpitar.budget.entities.User;
+import com.sirhpitar.budget.exceptions.BadRequestException;
 import com.sirhpitar.budget.exceptions.NotFoundException;
 import com.sirhpitar.budget.exceptions.TooManyRequestsException;
 import com.sirhpitar.budget.repository.LoginChallengeRepository;
@@ -65,10 +66,10 @@ public class AuthServiceImpl implements AuthService {
             String email = dto.getEmail().toLowerCase().trim();
             String username = dto.getUsername().trim();
 
-            userRepository.findByEmail(email).ifPresent(u -> { throw new IllegalArgumentException("Email already in use"); });
-            userRepository.findByUsername(username).ifPresent(u -> { throw new IllegalArgumentException("Username already in use"); });
+            userRepository.findByEmail(email).ifPresent(u -> { throw new BadRequestException("Email already in use"); });
+            userRepository.findByUsername(username).ifPresent(u -> { throw new BadRequestException("Username already in use"); });
 
-            if (!dto.isTermsAccepted()) throw new IllegalArgumentException("Terms of service must be accepted");
+            if (!dto.isTermsAccepted()) throw new BadRequestException("Terms of service must be accepted");
 
             User user = new User();
             user.setEmail(email);
@@ -144,7 +145,7 @@ public class AuthServiceImpl implements AuthService {
     public Mono<AuthCookieResponse> refresh(String refreshToken) {
         return ReactorBlocking.mono(() -> {
             if (refreshToken == null || refreshToken.isBlank()) {
-                throw new IllegalArgumentException("Refresh token is required");
+                throw new BadRequestException("Refresh token is required");
             }
 
             String hash = sha256(refreshToken.trim());
@@ -152,9 +153,9 @@ public class AuthServiceImpl implements AuthService {
             RefreshToken existing = refreshTokenRepository.findByTokenHash(hash)
                     .orElseThrow(() -> new NotFoundException("Invalid refresh token"));
 
-            if (existing.isRevoked()) throw new IllegalArgumentException("Refresh token revoked");
+            if (existing.isRevoked()) throw new BadRequestException("Refresh token revoked");
             if (existing.getExpiresAt() == null || existing.getExpiresAt().isBefore(Instant.now())) {
-                throw new IllegalArgumentException("Refresh token expired");
+                throw new BadRequestException("Refresh token expired");
             }
 
             User user = userRepository.findById(existing.getUserId())
@@ -195,13 +196,13 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public Mono<Void> verifyEmail(String token) {
         return ReactorBlocking.run(() -> {
-            if (token == null || token.isBlank()) throw new IllegalArgumentException("Verification token is required");
+            if (token == null || token.isBlank()) throw new BadRequestException("Verification token is required");
 
             User user = userRepository.findByEmailVerificationToken(token.trim())
                     .orElseThrow(() -> new NotFoundException("Invalid or expired verification token"));
 
             Instant expiry = user.getEmailVerificationTokenExpiry();
-            if (expiry == null || expiry.isBefore(Instant.now())) throw new IllegalArgumentException("Verification token expired");
+            if (expiry == null || expiry.isBefore(Instant.now())) throw new BadRequestException("Verification token expired");
 
             user.setEmailVerified(true);
             user.setEnabled(true);
@@ -215,12 +216,12 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public Mono<Void> resendVerification(String email) {
         return ReactorBlocking.run(() -> {
-            if (email == null || email.isBlank()) throw new IllegalArgumentException("Email is required");
+            if (email == null || email.isBlank()) throw new BadRequestException("Email is required");
 
             User user = userRepository.findByEmail(email.toLowerCase().trim())
                     .orElseThrow(() -> new NotFoundException("User not found"));
 
-            if (user.isEmailVerified()) throw new IllegalArgumentException("Email already verified");
+            if (user.isEmailVerified()) throw new BadRequestException("Email already verified");
 
             if (user.getEmailVerificationSentAt() != null && authProps.resendCooldownMinutes() > 0) {
                 Instant nextAllowed = user.getEmailVerificationSentAt()
@@ -270,8 +271,8 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public Mono<Void> resetPassword(String token, String newPassword) {
         return ReactorBlocking.run(() -> {
-            if (token == null || token.isBlank()) throw new IllegalArgumentException("Reset token is required");
-            if (newPassword == null || newPassword.isBlank()) throw new IllegalArgumentException("New password is required");
+            if (token == null || token.isBlank()) throw new BadRequestException("Reset token is required");
+            if (newPassword == null || newPassword.isBlank()) throw new BadRequestException("New password is required");
 
             String hash = sha256(token.trim());
 
@@ -279,7 +280,7 @@ public class AuthServiceImpl implements AuthService {
                     .orElseThrow(() -> new NotFoundException("Invalid or expired reset token"));
 
             if (user.getPasswordResetTokenExpiry() == null || user.getPasswordResetTokenExpiry().isBefore(Instant.now())) {
-                throw new IllegalArgumentException("Reset token expired");
+                throw new BadRequestException("Reset token expired");
             }
 
             user.setPassword(passwordEncoder.encode(newPassword));
@@ -322,11 +323,11 @@ public class AuthServiceImpl implements AuthService {
                     .orElseThrow(() -> new NotFoundException("User not found"));
 
             if (user.getTwoFactorSecret() == null || user.getTwoFactorSecret().isBlank()) {
-                throw new IllegalArgumentException("2FA setup not started");
+                throw new BadRequestException("2FA setup not started");
             }
 
             if (!verifyTotp(user.getTwoFactorSecret(), code)) {
-                throw new IllegalArgumentException("Invalid 2FA code");
+                throw new BadRequestException("Invalid 2FA code");
             }
 
             user.setTwoFactorEnabled(true);
@@ -338,7 +339,7 @@ public class AuthServiceImpl implements AuthService {
     public Mono<AuthCookieResponse> verifyLogin2fa(String loginChallengeToken, String code) {
         return ReactorBlocking.mono(() -> {
             if (loginChallengeToken == null || loginChallengeToken.isBlank()) {
-                throw new IllegalArgumentException("loginChallengeToken is required");
+                throw new BadRequestException("loginChallengeToken is required");
             }
 
             String hash = sha256(loginChallengeToken.trim());
@@ -346,20 +347,20 @@ public class AuthServiceImpl implements AuthService {
             LoginChallenge c = loginChallengeRepository.findByTokenHash(hash)
                     .orElseThrow(() -> new NotFoundException("Invalid login challenge token"));
 
-            if (c.isUsed()) throw new IllegalArgumentException("Login challenge already used");
+            if (c.isUsed()) throw new BadRequestException("Login challenge already used");
             if (c.getExpiresAt() == null || c.getExpiresAt().isBefore(Instant.now())) {
-                throw new IllegalArgumentException("Login challenge expired");
+                throw new BadRequestException("Login challenge expired");
             }
 
             User user = userRepository.findById(c.getUserId())
                     .orElseThrow(() -> new NotFoundException("User not found"));
 
             if (!user.isTwoFactorEnabled() || user.getTwoFactorSecret() == null) {
-                throw new IllegalArgumentException("2FA is not enabled on this account");
+                throw new BadRequestException("2FA is not enabled on this account");
             }
 
             if (!verifyTotp(user.getTwoFactorSecret(), code)) {
-                throw new IllegalArgumentException("Invalid 2FA code");
+                throw new BadRequestException("Invalid 2FA code");
             }
 
             // mark used
@@ -393,11 +394,11 @@ public class AuthServiceImpl implements AuthService {
             }
 
             if (!user.isTwoFactorEnabled() || user.getTwoFactorSecret() == null) {
-                throw new IllegalArgumentException("2FA is not enabled");
+                throw new BadRequestException("2FA is not enabled");
             }
 
             if (!verifyTotp(user.getTwoFactorSecret(), code)) {
-                throw new IllegalArgumentException("Invalid 2FA code");
+                throw new BadRequestException("Invalid 2FA code");
             }
 
             user.setTwoFactorEnabled(false);
@@ -418,11 +419,11 @@ public class AuthServiceImpl implements AuthService {
                 .orElseGet(() -> userRepository.findByUsername(identifier)
                         .orElseThrow(() -> new NotFoundException("Invalid credentials")));
 
-        if (!user.isEmailVerified()) throw new IllegalArgumentException("Email not verified");
-        if (!user.isEnabled()) throw new IllegalArgumentException("Account disabled");
+        if (!user.isEmailVerified()) throw new BadRequestException("Email not verified");
+        if (!user.isEnabled()) throw new BadRequestException("Account disabled");
 
         if (user.getLockedUntil() != null && user.getLockedUntil().isAfter(Instant.now())) {
-            throw new IllegalArgumentException("Account locked. Try again later.");
+            throw new BadRequestException("Account locked. Try again later.");
         }
 
         boolean ok = passwordEncoder.matches(dto.getPassword(), user.getPassword());

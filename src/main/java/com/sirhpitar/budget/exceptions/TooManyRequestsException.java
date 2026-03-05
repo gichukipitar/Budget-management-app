@@ -1,7 +1,10 @@
 package com.sirhpitar.budget.exceptions;
 
-public class TooManyRequestsException extends RuntimeException {
+import org.springframework.http.HttpStatus;
+
+public class TooManyRequestsException extends ApiException {
+
     public TooManyRequestsException(String message) {
-        super(message);
+        super(HttpStatus.TOO_MANY_REQUESTS, message);
     }
 }

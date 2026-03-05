@@ -29,34 +29,21 @@ public class GlobalExceptionHandler {
         return ApiResponseUtil.validationError(message);
     }
 
-    @ExceptionHandler(NotFoundException.class)
-    public ResponseEntity<ApiResponse<Void>> handleNotFoundException(NotFoundException ex) {
-        return ApiResponseUtil.notFound(ex.getMessage());
+    @ExceptionHandler(ApiException.class)
+    public ResponseEntity<ApiResponse<Void>> handleApiException(ApiException ex) {
+        return ApiResponseUtil.error(ex.getStatus(), ex.getMessage());
     }
 
     @ExceptionHandler({DataIntegrityViolationException.class, DuplicateKeyException.class})
     public ResponseEntity<ApiResponse<Void>> handleJdbcDataIntegrityViolation(Exception ex) {
         log.error("Data integrity violation:", ex);
-        String rawMessage = ex.getMessage();
-        String cleanedMessage = parsePostgresDuplicateKeyMessage(rawMessage);
+        String cleanedMessage = parsePostgresDuplicateKeyMessage(ex.getMessage());
         return ApiResponseUtil.error(HttpStatus.BAD_REQUEST, cleanedMessage);
     }
 
     @ExceptionHandler(NoResourceFoundException.class)
     public ResponseEntity<ApiResponse<Void>> handleNoResourceFound(NoResourceFoundException ex) {
-        // This happens when the request doesn't match any controller route
-        // and WebFlux thinks you're requesting a static resource.
         return ApiResponseUtil.notFound(ex.getMessage());
-    }
-
-    @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<ApiResponse<Void>> handleIllegalArgumentException(IllegalArgumentException ex) {
-        return ApiResponseUtil.error(HttpStatus.BAD_REQUEST, ex.getMessage());
-    }
-
-    @ExceptionHandler(TooManyRequestsException.class)
-    public ResponseEntity<ApiResponse<Void>> handleTooManyRequests(TooManyRequestsException ex) {
-        return ApiResponseUtil.error(HttpStatus.TOO_MANY_REQUESTS, ex.getMessage());
     }
 
     @ExceptionHandler(Exception.class)
@@ -68,28 +55,23 @@ public class GlobalExceptionHandler {
     private String parsePostgresDuplicateKeyMessage(String rawMessage) {
         if (rawMessage == null) return "Duplicate value detected.";
 
-        // Handle expense-specific constraint violations
         if (rawMessage.contains("uk_expense_user_category_amount_date")) {
             return "An expense with the same category, amount, and date already exists for this user.";
         }
-
         if (rawMessage.contains("uk_expense_receipt_url")) {
             return "This receipt URL is already associated with another expense.";
         }
 
-        // Original pattern matching
         Pattern pattern = Pattern.compile("Key \\((\\w+)\\)=\\([^)]+\\) already exists");
         Matcher matcher = pattern.matcher(rawMessage);
         if (matcher.find()) {
-            String field = matcher.group(1);
-            return String.format("The %s you provided is already in use.", field);
+            return String.format("The %s you provided is already in use.", matcher.group(1));
         }
 
         Pattern constraintPattern = Pattern.compile("violates unique constraint \"(\\w+)\"");
         Matcher constraintMatcher = constraintPattern.matcher(rawMessage);
         if (constraintMatcher.find()) {
-            String constraint = constraintMatcher.group(1);
-            String field = guessFieldFromConstraint(constraint);
+            String field = guessFieldFromConstraint(constraintMatcher.group(1));
             return String.format("The %s you provided is already in use.", field);
         }
 
@@ -97,12 +79,9 @@ public class GlobalExceptionHandler {
     }
 
     private String guessFieldFromConstraint(String constraint) {
-        // Enhanced pattern matching for expense-related constraints
         Pattern fieldPattern = Pattern.compile("(?i)(email|username|category|budget|phone|expense|receipt)");
         Matcher matcher = fieldPattern.matcher(constraint);
-        if (matcher.find()) {
-            return matcher.group(1);
-        }
+        if (matcher.find()) return matcher.group(1);
         return "value";
     }
 }

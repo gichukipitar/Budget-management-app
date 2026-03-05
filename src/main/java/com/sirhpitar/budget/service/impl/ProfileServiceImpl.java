@@ -4,6 +4,7 @@ import com.sirhpitar.budget.config.AuthProps;
 import com.sirhpitar.budget.dtos.request.*;
 import com.sirhpitar.budget.dtos.response.MeResponseDto;
 import com.sirhpitar.budget.entities.User;
+import com.sirhpitar.budget.exceptions.BadRequestException;
 import com.sirhpitar.budget.exceptions.NotFoundException;
 import com.sirhpitar.budget.repository.UserRepository;
 import com.sirhpitar.budget.service.AccountEmailService;
@@ -51,7 +52,7 @@ public class ProfileServiceImpl implements ProfileService {
 
             if (dto.getFirstName() != null) {
                 String trimmed = dto.getFirstName().trim();
-                if (trimmed.isBlank()) throw new IllegalArgumentException("First name cannot be blank");
+                if (trimmed.isBlank()) throw new BadRequestException("First name cannot be blank");
                 user.setFirstName(trimmed);
                 changed = true;
                 changes.append("firstName, ");
@@ -59,7 +60,7 @@ public class ProfileServiceImpl implements ProfileService {
 
             if (dto.getLastName() != null) {
                 String trimmed = dto.getLastName().trim();
-                if (trimmed.isBlank()) throw new IllegalArgumentException("Last name cannot be blank");
+                if (trimmed.isBlank()) throw new BadRequestException("Last name cannot be blank");
                 user.setLastName(trimmed);
                 changed = true;
                 changes.append("lastName, ");
@@ -73,7 +74,7 @@ public class ProfileServiceImpl implements ProfileService {
 
             if (dto.getTimezone() != null) {
                 String trimmed = dto.getTimezone().trim();
-                if (trimmed.isBlank()) throw new IllegalArgumentException("Timezone cannot be blank");
+                if (trimmed.isBlank()) throw new BadRequestException("Timezone cannot be blank");
                 user.setTimezone(trimmed);
                 changed = true;
                 changes.append("timezone, ");
@@ -105,12 +106,12 @@ public class ProfileServiceImpl implements ProfileService {
             User user = findByEmail(email);
 
             if (!passwordEncoder.matches(dto.getOldPassword(), user.getPassword())) {
-                throw new IllegalArgumentException("Old password is incorrect");
+                throw new BadRequestException("Old password is incorrect");
             }
 
             // optional safety: prevent same password
             if (passwordEncoder.matches(dto.getNewPassword(), user.getPassword())) {
-                throw new IllegalArgumentException("New password must be different");
+                throw new BadRequestException("New password must be different");
             }
 
             user.setPassword(passwordEncoder.encode(dto.getNewPassword()));
@@ -127,18 +128,18 @@ public class ProfileServiceImpl implements ProfileService {
 
             String newEmail = dto.getNewEmail();
             if (newEmail == null || newEmail.isBlank()) {
-                throw new IllegalArgumentException("New email is required");
+                throw new BadRequestException("New email is required");
             }
             newEmail = newEmail.toLowerCase().trim();
 
             if (!passwordEncoder.matches(dto.getPassword(), user.getPassword())) {
-                throw new IllegalArgumentException("Invalid password");
+                throw new BadRequestException("Invalid password");
             }
 
             // prevent duplicates
             userRepository.findByEmail(newEmail).ifPresent(existing -> {
                 if (!existing.getId().equals(user.getId())) {
-                    throw new IllegalArgumentException("Email already in use");
+                    throw new BadRequestException("Email already in use");
                 }
             });
 
@@ -168,14 +169,14 @@ public class ProfileServiceImpl implements ProfileService {
     public Mono<Void> verifyEmailChange(String token) {
         return ReactorBlocking.run(() -> {
             if (token == null || token.isBlank()) {
-                throw new IllegalArgumentException("Verification token is required");
+                throw new BadRequestException("Verification token is required");
             }
 
             User user = userRepository.findByEmailVerificationToken(token.trim()).orElseThrow(() -> new NotFoundException("Invalid or expired verification token"));
 
             Instant expiry = user.getEmailVerificationTokenExpiry();
             if (expiry == null || expiry.isBefore(Instant.now())) {
-                throw new IllegalArgumentException("Verification token expired");
+                throw new BadRequestException("Verification token expired");
             }
 
             user.setEmailVerified(true);
@@ -195,13 +196,13 @@ public class ProfileServiceImpl implements ProfileService {
     @Override
     public Mono<MeResponseDto> uploadProfilePicture(String email, FilePart file) {
         return ReactorBlocking.mono(() -> {
-            if (file == null) throw new IllegalArgumentException("File is required");
+            if (file == null) throw new BadRequestException("File is required");
 
             User user = findByEmail(email);
 
             String fn = file.filename().toLowerCase();
             if (!(fn.endsWith(".png") || fn.endsWith(".jpg") || fn.endsWith(".jpeg") || fn.endsWith(".webp"))) {
-                throw new IllegalArgumentException("Only png/jpg/jpeg/webp allowed");
+                throw new BadRequestException("Only png/jpg/jpeg/webp allowed");
             }
 
             Files.createDirectories(uploadRoot);
@@ -231,12 +232,12 @@ public class ProfileServiceImpl implements ProfileService {
             User user = findByEmail(email);
 
             if (!passwordEncoder.matches(dto.getPassword(), user.getPassword())) {
-                throw new IllegalArgumentException("Invalid password");
+                throw new BadRequestException("Invalid password");
             }
 
             if (dto.getConfirm() != null && !dto.getConfirm().isBlank()) {
                 if (!"DELETE".equalsIgnoreCase(dto.getConfirm().trim())) {
-                    throw new IllegalArgumentException("Confirm must be DELETE");
+                    throw new BadRequestException("Confirm must be DELETE");
                 }
             }
 
@@ -251,7 +252,7 @@ public class ProfileServiceImpl implements ProfileService {
     // -------------------- helpers --------------------
 
     private User findByEmail(String email) {
-        if (email == null || email.isBlank()) throw new IllegalArgumentException("Email is required");
+        if (email == null || email.isBlank()) throw new BadRequestException("Email is required");
         return userRepository.findByEmail(email.toLowerCase().trim()).orElseThrow(() -> new NotFoundException("User not found"));
     }
 
