@@ -1,11 +1,9 @@
 package com.sirhpitar.budget.repository;
 
-import com.sirhpitar.budget.entities.RefreshToken;
 import com.sirhpitar.budget.entities.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
-import java.util.List;
 import java.util.Optional;
 
 @Repository

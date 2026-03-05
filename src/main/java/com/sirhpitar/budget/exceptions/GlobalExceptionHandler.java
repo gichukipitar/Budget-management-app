@@ -1,7 +1,9 @@
 package com.sirhpitar.budget.exceptions;
 
 import com.sirhpitar.budget.api_wrappers.ApiResponse;
+import com.sirhpitar.budget.api_wrappers.ApiResponseStatus;
 import com.sirhpitar.budget.api_wrappers.ApiResponseUtil;
+import com.sirhpitar.budget.config.RequestIdConfig;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.support.DefaultMessageSourceResolvable;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -12,6 +14,7 @@ import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.support.WebExchangeBindException;
 import org.springframework.web.reactive.resource.NoResourceFoundException;
+import org.springframework.web.server.ServerWebExchange;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -20,36 +23,110 @@ import java.util.regex.Pattern;
 @Slf4j
 public class GlobalExceptionHandler {
 
+
     @ExceptionHandler(WebExchangeBindException.class)
-    public ResponseEntity<ApiResponse<Void>> handleValidationException(WebExchangeBindException ex) {
+    public ResponseEntity<ApiResponse<Void>> handleValidationException(
+            WebExchangeBindException ex,
+            ServerWebExchange exchange
+    ) {
         String message = ex.getAllErrors().stream()
                 .map(DefaultMessageSourceResolvable::getDefaultMessage)
                 .reduce((m1, m2) -> m1 + "; " + m2)
                 .orElse("Validation error");
-        return ApiResponseUtil.validationError(message);
+
+        String requestId = RequestIdConfig.getRequestId(exchange);
+
+        return ApiResponseUtil.error(
+                HttpStatus.BAD_REQUEST,
+                ApiResponseStatus.VALIDATION_ERROR,
+                message,
+                requestId,
+                "VALIDATION_ERROR"
+        );
     }
 
     @ExceptionHandler(ApiException.class)
-    public ResponseEntity<ApiResponse<Void>> handleApiException(ApiException ex) {
-        return ApiResponseUtil.error(ex.getStatus(), ex.getMessage());
+    public ResponseEntity<ApiResponse<Void>> handleApiException(
+            ApiException ex,
+            ServerWebExchange exchange
+    ) {
+        String requestId = RequestIdConfig.getRequestId(exchange);
+
+        ApiResponseStatus apiStatus = mapStatus(ex.getHttpStatus());
+
+        return ApiResponseUtil.error(
+                ex.getHttpStatus(),
+                apiStatus,
+                ex.getMessage(),
+                requestId,
+                ex.getErrorCode()
+        );
     }
 
     @ExceptionHandler({DataIntegrityViolationException.class, DuplicateKeyException.class})
-    public ResponseEntity<ApiResponse<Void>> handleJdbcDataIntegrityViolation(Exception ex) {
-        log.error("Data integrity violation:", ex);
+    public ResponseEntity<ApiResponse<Void>> handleJdbcDataIntegrityViolation(
+            Exception ex,
+            ServerWebExchange exchange
+    ) {
+        log.warn("Data integrity violation:", ex);
+
+        String requestId = RequestIdConfig.getRequestId(exchange);
         String cleanedMessage = parsePostgresDuplicateKeyMessage(ex.getMessage());
-        return ApiResponseUtil.error(HttpStatus.BAD_REQUEST, cleanedMessage);
+
+        return ApiResponseUtil.error(
+                HttpStatus.BAD_REQUEST,
+                ApiResponseStatus.BAD_REQUEST,
+                cleanedMessage,
+                requestId,
+                "DATA_INTEGRITY_VIOLATION"
+        );
     }
 
     @ExceptionHandler(NoResourceFoundException.class)
-    public ResponseEntity<ApiResponse<Void>> handleNoResourceFound(NoResourceFoundException ex) {
-        return ApiResponseUtil.notFound(ex.getMessage());
+    public ResponseEntity<ApiResponse<Void>> handleNoResourceFound(
+            NoResourceFoundException ex,
+            ServerWebExchange exchange
+    ) {
+        String requestId = RequestIdConfig.getRequestId(exchange);
+
+        return ApiResponseUtil.error(
+                HttpStatus.NOT_FOUND,
+                ApiResponseStatus.NOT_FOUND,
+                ex.getMessage(),
+                requestId,
+                "NOT_FOUND"
+        );
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ApiResponse<Void>> handleGenericException(Exception ex) {
+    public ResponseEntity<ApiResponse<Void>> handleGenericException(
+            Exception ex,
+            ServerWebExchange exchange
+    ) {
         log.error("Unhandled exception caught in global handler", ex);
-        return ApiResponseUtil.error(HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred.");
+
+        String requestId = RequestIdConfig.getRequestId(exchange);
+
+        return ApiResponseUtil.error(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                ApiResponseStatus.INTERNAL_SERVER_ERROR,
+                "An unexpected error occurred.",
+                requestId,
+                "INTERNAL_SERVER_ERROR"
+        );
+    }
+
+    private ApiResponseStatus mapStatus(HttpStatus status) {
+        if (status == null) return ApiResponseStatus.ERROR;
+
+        return switch (status) {
+            case BAD_REQUEST -> ApiResponseStatus.BAD_REQUEST;
+            case UNAUTHORIZED -> ApiResponseStatus.UNAUTHORIZED;
+            case FORBIDDEN -> ApiResponseStatus.FORBIDDEN;
+            case NOT_FOUND -> ApiResponseStatus.NOT_FOUND;
+            case INTERNAL_SERVER_ERROR -> ApiResponseStatus.INTERNAL_SERVER_ERROR;
+            default -> ApiResponseStatus.ERROR;
+        };
     }
 
     private String parsePostgresDuplicateKeyMessage(String rawMessage) {
@@ -58,6 +135,7 @@ public class GlobalExceptionHandler {
         if (rawMessage.contains("uk_expense_user_category_amount_date")) {
             return "An expense with the same category, amount, and date already exists for this user.";
         }
+
         if (rawMessage.contains("uk_expense_receipt_url")) {
             return "This receipt URL is already associated with another expense.";
         }

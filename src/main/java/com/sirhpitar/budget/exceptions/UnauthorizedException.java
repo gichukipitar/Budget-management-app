@@ -3,8 +3,7 @@ package com.sirhpitar.budget.exceptions;
 import org.springframework.http.HttpStatus;
 
 public class UnauthorizedException extends ApiException {
-
     public UnauthorizedException(String message) {
-        super(HttpStatus.UNAUTHORIZED, message);
+        super(HttpStatus.UNAUTHORIZED, message, "AUTH_UNAUTHORIZED");
     }
 }

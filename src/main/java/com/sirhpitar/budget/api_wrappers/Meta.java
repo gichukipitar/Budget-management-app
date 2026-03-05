@@ -12,4 +12,6 @@ public class Meta {
     private ApiResponseStatus status;
     private String message;
     private String timestamp;
+    private String requestId;
+    private String errorCode;
 }
