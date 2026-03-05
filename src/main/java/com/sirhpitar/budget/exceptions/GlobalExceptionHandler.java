@@ -29,12 +29,13 @@ public class GlobalExceptionHandler {
             WebExchangeBindException ex,
             ServerWebExchange exchange
     ) {
+        String requestId = RequestIdConfig.getRequestId(exchange);
+
         String message = ex.getAllErrors().stream()
                 .map(DefaultMessageSourceResolvable::getDefaultMessage)
+                .distinct()
                 .reduce((m1, m2) -> m1 + "; " + m2)
                 .orElse("Validation error");
-
-        String requestId = RequestIdConfig.getRequestId(exchange);
 
         return ApiResponseUtil.error(
                 HttpStatus.BAD_REQUEST,
@@ -52,6 +53,12 @@ public class GlobalExceptionHandler {
     ) {
         String requestId = RequestIdConfig.getRequestId(exchange);
 
+        if (ex.getHttpStatus().is5xxServerError()) {
+            log.error("ApiException [{}] requestId={} message={}", ex.getHttpStatus(), requestId, ex.getMessage(), ex);
+        } else {
+            log.warn("ApiException [{}] requestId={} message={}", ex.getHttpStatus(), requestId, ex.getMessage());
+        }
+
         ApiResponseStatus apiStatus = mapStatus(ex.getHttpStatus());
 
         return ApiResponseUtil.error(
@@ -63,14 +70,16 @@ public class GlobalExceptionHandler {
         );
     }
 
+
     @ExceptionHandler({DataIntegrityViolationException.class, DuplicateKeyException.class})
     public ResponseEntity<ApiResponse<Void>> handleJdbcDataIntegrityViolation(
             Exception ex,
             ServerWebExchange exchange
     ) {
-        log.warn("Data integrity violation:", ex);
-
         String requestId = RequestIdConfig.getRequestId(exchange);
+
+        log.error("Data integrity violation requestId={}", requestId, ex);
+
         String cleanedMessage = parsePostgresDuplicateKeyMessage(ex.getMessage());
 
         return ApiResponseUtil.error(
@@ -88,7 +97,6 @@ public class GlobalExceptionHandler {
             ServerWebExchange exchange
     ) {
         String requestId = RequestIdConfig.getRequestId(exchange);
-
         return ApiResponseUtil.error(
                 HttpStatus.NOT_FOUND,
                 ApiResponseStatus.NOT_FOUND,
@@ -98,14 +106,28 @@ public class GlobalExceptionHandler {
         );
     }
 
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ApiResponse<Void>> handleIllegalArgumentException(
+            IllegalArgumentException ex,
+            ServerWebExchange exchange
+    ) {
+        String requestId = RequestIdConfig.getRequestId(exchange);
+        return ApiResponseUtil.error(
+                HttpStatus.BAD_REQUEST,
+                ApiResponseStatus.BAD_REQUEST,
+                ex.getMessage(),
+                requestId,
+                "BAD_REQUEST"
+        );
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleGenericException(
             Exception ex,
             ServerWebExchange exchange
     ) {
-        log.error("Unhandled exception caught in global handler", ex);
-
         String requestId = RequestIdConfig.getRequestId(exchange);
+        log.error("Unhandled exception requestId={}", requestId, ex);
 
         return ApiResponseUtil.error(
                 HttpStatus.INTERNAL_SERVER_ERROR,
@@ -117,16 +139,13 @@ public class GlobalExceptionHandler {
     }
 
     private ApiResponseStatus mapStatus(HttpStatus status) {
-        if (status == null) return ApiResponseStatus.ERROR;
-
-        return switch (status) {
-            case BAD_REQUEST -> ApiResponseStatus.BAD_REQUEST;
-            case UNAUTHORIZED -> ApiResponseStatus.UNAUTHORIZED;
-            case FORBIDDEN -> ApiResponseStatus.FORBIDDEN;
-            case NOT_FOUND -> ApiResponseStatus.NOT_FOUND;
-            case INTERNAL_SERVER_ERROR -> ApiResponseStatus.INTERNAL_SERVER_ERROR;
-            default -> ApiResponseStatus.ERROR;
-        };
+        if (status == HttpStatus.UNAUTHORIZED) return ApiResponseStatus.UNAUTHORIZED;
+        if (status == HttpStatus.FORBIDDEN) return ApiResponseStatus.FORBIDDEN;
+        if (status == HttpStatus.NOT_FOUND) return ApiResponseStatus.NOT_FOUND;
+        if (status == HttpStatus.BAD_REQUEST) return ApiResponseStatus.BAD_REQUEST;
+        if (status == HttpStatus.TOO_MANY_REQUESTS) return ApiResponseStatus.ERROR;
+        if (status.is5xxServerError()) return ApiResponseStatus.INTERNAL_SERVER_ERROR;
+        return ApiResponseStatus.ERROR;
     }
 
     private String parsePostgresDuplicateKeyMessage(String rawMessage) {
@@ -135,7 +154,6 @@ public class GlobalExceptionHandler {
         if (rawMessage.contains("uk_expense_user_category_amount_date")) {
             return "An expense with the same category, amount, and date already exists for this user.";
         }
-
         if (rawMessage.contains("uk_expense_receipt_url")) {
             return "This receipt URL is already associated with another expense.";
         }
