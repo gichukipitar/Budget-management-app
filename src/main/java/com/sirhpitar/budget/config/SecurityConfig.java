@@ -21,9 +21,22 @@ public class SecurityConfig {
                 .cors(cors -> {})
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
                 .authorizeExchange(ex -> ex
-                        .pathMatchers("/api/auth/**").permitAll()
-                        .pathMatchers("/actuator/**").permitAll()
                         .pathMatchers(HttpMethod.OPTIONS).permitAll()
+                        .pathMatchers("/actuator/**").permitAll()
+
+                        // public auth routes
+                        .pathMatchers(HttpMethod.POST,
+                                "/api/auth/register",
+                                "/api/auth/login",
+                                "/api/auth/resend-verification",
+                                "/api/auth/forgot-password",
+                                "/api/auth/reset-password",
+                                "/api/auth/refresh",
+                                "/api/auth/2fa/verify-login"
+                        ).permitAll()
+                        .pathMatchers(HttpMethod.GET, "/api/auth/verify-email").permitAll()
+
+                        // everything else requires JWT
                         .anyExchange().authenticated()
                 )
                 .oauth2ResourceServer(oauth2 -> oauth2
