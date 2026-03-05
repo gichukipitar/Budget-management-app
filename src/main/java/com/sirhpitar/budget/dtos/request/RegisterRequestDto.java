@@ -1,32 +1,36 @@
 package com.sirhpitar.budget.dtos.request;
 
-import jakarta.validation.constraints.AssertTrue;
-import jakarta.validation.constraints.Email;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Pattern;
-import lombok.Getter;
-import lombok.Setter;
+import com.sirhpitar.budget.dtos.validation.ValidationPatterns;
+import jakarta.validation.constraints.*;
+import lombok.Data;
 
-@Getter
-@Setter
+@Data
 public class RegisterRequestDto {
+
     @NotBlank
+    @Size(min = 3, max = 30, message = "Username must be 3-30 characters")
+    @Pattern(regexp = "^[a-zA-Z0-9._-]+$", message = "Username contains invalid characters")
     private String username;
 
-    @NotBlank @Email
+    @NotBlank
+    @Email
     private String email;
 
     @NotBlank
     @Pattern(
-            regexp = "^(?=.*[!@#$%^&*()_+\\-={}\\[\\]:;\"'<>,.?/]).{8,}$",
+            regexp = ValidationPatterns.PASSWORD,
             message = "Password must be at least 8 characters and contain one special character"
     )
     private String password;
 
-    @NotBlank private String firstName;
-    @NotBlank private String lastName;
+    @NotBlank
+    @Size(max = 60)
+    private String firstName;
 
-    // must be true
+    @NotBlank
+    @Size(max = 60)
+    private String lastName;
+
     @AssertTrue(message = "Terms of service must be accepted")
     private boolean termsAccepted;
 }

@@ -95,7 +95,7 @@ public class AuthController {
     }
 
     @PostMapping("/resend-verification")
-    public Mono<ResponseEntity<ApiResponse<Void>>> resendVerification(@Valid @RequestBody ResendVerificationRequestDto dto) {
+    public Mono<ResponseEntity<ApiResponse<Void>>> resendVerification(@Valid @RequestBody EmailRequestDto dto) {
         return authService.resendVerification(dto.getEmail())
                 .thenReturn(ApiResponseUtil.successVoid("Verification email resent"));
     }
@@ -130,7 +130,7 @@ public class AuthController {
     }
 
     @PostMapping("/forgot-password")
-    public Mono<ResponseEntity<ApiResponse<Void>>> forgotPassword(@Valid @RequestBody ForgotPasswordRequestDto dto) {
+    public Mono<ResponseEntity<ApiResponse<Void>>> forgotPassword(@Valid @RequestBody EmailRequestDto dto) {
         return authService.forgotPassword(dto.getEmail())
                 .thenReturn(ApiResponseUtil.successVoid("Password reset email sent"));
     }

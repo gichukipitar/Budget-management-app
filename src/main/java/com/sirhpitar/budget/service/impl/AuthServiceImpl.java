@@ -412,7 +412,7 @@ public class AuthServiceImpl implements AuthService {
     // -------------------- helpers --------------------
 
     private User authenticate(LoginRequestDto dto) {
-        String identifier = dto.getIdentifier().trim();
+        String identifier = dto.getEmailOrUsername().trim();
 
         User user = userRepository.findByEmail(identifier.toLowerCase())
                 .orElseGet(() -> userRepository.findByUsername(identifier)

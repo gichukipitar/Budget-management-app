@@ -1,16 +1,19 @@
 package com.sirhpitar.budget.dtos.request;
 
+import com.sirhpitar.budget.dtos.validation.ValidationPatterns;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 @Data
 public class VerifyLogin2faRequestDto {
 
     @NotBlank
+    @Size(max = 200)
     private String loginChallengeToken;
 
     @NotBlank
-    @Pattern(regexp="^\\d{6}$", message="Code must be 6 digits")
+    @Pattern(regexp = ValidationPatterns.OTP_6_DIGITS, message = "Code must be 6 digits")
     private String code;
 }
