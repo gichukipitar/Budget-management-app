@@ -23,6 +23,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseCookie;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
@@ -58,6 +59,7 @@ public class AuthServiceImpl implements AuthService {
     private final JwtProps jwtProps;
     private final AuthProps authProps;
     private final EmailVerificationService emailVerificationService;
+    private final String jwkKeyId;
 
     @Override
     public Mono<Void> register(RegisterRequestDto dto) {
@@ -490,7 +492,10 @@ public class AuthServiceImpl implements AuthService {
                 .claim("role", "USER")
                 .build();
 
-        JwsHeader headers = JwsHeader.with(MacAlgorithm.HS256).build();
+        JwsHeader headers = JwsHeader.with(SignatureAlgorithm.RS256)
+                .keyId(jwkKeyId)
+                .build();
+
         return jwtEncoder.encode(JwtEncoderParameters.from(headers, claims)).getTokenValue();
     }
 

@@ -34,6 +34,7 @@ public class SecurityConfig {
                                 "/api/auth/refresh",
                                 "/api/auth/2fa/verify-login"
                         ).permitAll()
+                        .pathMatchers(HttpMethod.GET, "/.well-known/jwks.json").permitAll()
                         .pathMatchers(HttpMethod.GET, "/api/auth/verify-email").permitAll()
 
                         // everything else requires JWT
