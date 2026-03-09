@@ -27,13 +27,6 @@ spring:
           starttls:
             enable: true
 
-
-  security:
-    oauth2:
-      resourceserver:
-        jwt:
-          jwk-set-uri: "http://localhost:8080/.well-known/jwks.json"
-
 management:
   endpoints:
     web:
@@ -45,8 +38,6 @@ app:
     jwt:
       issuer: budget-app
       access-token-minutes: 60
-
-
       key-id: "budget-auth-kid-001"
       private-key-location: "classpath:keys/jwt-private.pem"
       public-key-location: "classpath:keys/jwt-public.pem"
