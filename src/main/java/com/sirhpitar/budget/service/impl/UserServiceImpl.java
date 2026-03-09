@@ -3,6 +3,7 @@ package com.sirhpitar.budget.service.impl;
 import com.sirhpitar.budget.dtos.request.UserRequestDto;
 import com.sirhpitar.budget.dtos.response.UserResponseDto;
 import com.sirhpitar.budget.entities.User;
+import com.sirhpitar.budget.exceptions.BadRequestException;
 import com.sirhpitar.budget.exceptions.NotFoundException;
 import com.sirhpitar.budget.mappers.UserMapper;
 import com.sirhpitar.budget.repository.UserRepository;
@@ -25,17 +26,24 @@ public class UserServiceImpl implements UserService {
     @Override
     public Mono<UserResponseDto> createUser(UserRequestDto dto) {
         return ReactorBlocking.mono(() -> {
-            // Map basic fields
+            String email = requireNonBlank(dto.getEmail(), "Email is required").toLowerCase().trim();
+            String username = requireNonBlank(dto.getUsername(), "Username is required").trim();
+            String rawPassword = requireNonBlank(dto.getPassword(), "Password is required");
+
+            if (userRepository.findByEmail(email).isPresent()) {
+                throw new BadRequestException("Email already in use");
+            }
+
+            if (userRepository.findByUsername(username).isPresent()) {
+                throw new BadRequestException("Username already in use");
+            }
+
             User user = userMapper.toEntity(dto);
 
-            // Normalize
-            user.setEmail(dto.getEmail().toLowerCase().trim());
-            user.setUsername(dto.getUsername().trim());
+            user.setEmail(email);
+            user.setUsername(username);
+            user.setPasswordHash(passwordEncoder.encode(rawPassword));
 
-            // Hash password (CRITICAL)
-            user.setPassword(passwordEncoder.encode(dto.getPassword()));
-
-            // Default security flags (in case entity defaults aren’t applied for some reason)
             user.setEnabled(true);
             user.setFailedLoginAttempts(0);
             user.setLockedUntil(null);
@@ -67,21 +75,42 @@ public class UserServiceImpl implements UserService {
             User existing = userRepository.findById(id)
                     .orElseThrow(() -> new NotFoundException("User not found"));
 
-            // Update basic fields only
+            if (dto.getEmail() != null && !dto.getEmail().isBlank()) {
+                String normalizedEmail = dto.getEmail().toLowerCase().trim();
+                userRepository.findByEmail(normalizedEmail).ifPresent(user -> {
+                    if (!user.getId().equals(id)) {
+                        throw new BadRequestException("Email already in use");
+                    }
+                });
+            }
+
+            if (dto.getUsername() != null && !dto.getUsername().isBlank()) {
+                String normalizedUsername = dto.getUsername().trim();
+                userRepository.findByUsername(normalizedUsername).ifPresent(user -> {
+                    if (!user.getId().equals(id)) {
+                        throw new BadRequestException("Username already in use");
+                    }
+                });
+            }
+
             userMapper.updateUserFromDto(dto, existing);
 
-            existing.setEmail(dto.getEmail().toLowerCase().trim());
-            existing.setUsername(dto.getUsername().trim());
+            if (dto.getEmail() != null && !dto.getEmail().isBlank()) {
+                existing.setEmail(dto.getEmail().toLowerCase().trim());
+            }
+
+            if (dto.getUsername() != null && !dto.getUsername().isBlank()) {
+                existing.setUsername(dto.getUsername().trim());
+            }
 
             if (dto.getPassword() != null && !dto.getPassword().isBlank()) {
-                existing.setPassword(passwordEncoder.encode(dto.getPassword()));
+                existing.setPasswordHash(passwordEncoder.encode(dto.getPassword()));
             }
 
             User updated = userRepository.save(existing);
             return userMapper.toDto(updated);
         });
     }
-
 
     @Override
     public Mono<Void> deleteUser(Long id) {
@@ -91,5 +120,12 @@ public class UserServiceImpl implements UserService {
             }
             userRepository.deleteById(id);
         });
+    }
+
+    private String requireNonBlank(String value, String message) {
+        if (value == null || value.isBlank()) {
+            throw new BadRequestException(message);
+        }
+        return value;
     }
 }

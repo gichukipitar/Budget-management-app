@@ -10,7 +10,7 @@ import com.sirhpitar.budget.entities.User;
 import com.sirhpitar.budget.exceptions.BadRequestException;
 import com.sirhpitar.budget.exceptions.NotFoundException;
 import com.sirhpitar.budget.repository.UserRepository;
-import com.sirhpitar.budget.service.AccountEmailService;
+import com.sirhpitar.budget.service.AccountNotificationEmailService;
 import com.sirhpitar.budget.service.EmailVerificationService;
 import com.sirhpitar.budget.service.ProfileService;
 import com.sirhpitar.budget.utils.ReactorBlocking;
@@ -33,10 +33,9 @@ public class ProfileServiceImpl implements ProfileService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
-
     private final AuthProps authProps;
     private final EmailVerificationService emailVerificationService;
-    private final AccountEmailService accountEmailService;
+    private final AccountNotificationEmailService accountEmailService;
 
     private final Path uploadRoot = Paths.get("uploads");
 
@@ -55,7 +54,9 @@ public class ProfileServiceImpl implements ProfileService {
 
             if (dto.getFirstName() != null) {
                 String trimmed = dto.getFirstName().trim();
-                if (trimmed.isBlank()) throw new BadRequestException("First name cannot be blank");
+                if (trimmed.isBlank()) {
+                    throw new BadRequestException("First name cannot be blank");
+                }
                 user.setFirstName(trimmed);
                 changed = true;
                 changes.append("firstName, ");
@@ -63,31 +64,34 @@ public class ProfileServiceImpl implements ProfileService {
 
             if (dto.getLastName() != null) {
                 String trimmed = dto.getLastName().trim();
-                if (trimmed.isBlank()) throw new BadRequestException("Last name cannot be blank");
+                if (trimmed.isBlank()) {
+                    throw new BadRequestException("Last name cannot be blank");
+                }
                 user.setLastName(trimmed);
                 changed = true;
                 changes.append("lastName, ");
             }
 
             if (dto.getCurrency() != null) {
-                user.setCurrency(dto.getCurrency().trim().toUpperCase());
+                String trimmed = dto.getCurrency().trim();
+                user.setCurrency(trimmed.isBlank() ? null : trimmed.toUpperCase());
                 changed = true;
                 changes.append("currency, ");
             }
 
             if (dto.getTimezone() != null) {
                 String trimmed = dto.getTimezone().trim();
-                if (trimmed.isBlank()) throw new BadRequestException("Timezone cannot be blank");
+                if (trimmed.isBlank()) {
+                    throw new BadRequestException("Timezone cannot be blank");
+                }
                 user.setTimezone(trimmed);
                 changed = true;
                 changes.append("timezone, ");
             }
 
-            // manual URL updates:
             if (dto.getProfilePictureUrl() != null) {
                 String trimmed = dto.getProfilePictureUrl().trim();
-                if (trimmed.isBlank()) user.setProfilePictureUrl(null);
-                else user.setProfilePictureUrl(trimmed);
+                user.setProfilePictureUrl(trimmed.isBlank() ? null : trimmed);
                 changed = true;
                 changes.append("profilePictureUrl, ");
             }
@@ -95,8 +99,13 @@ public class ProfileServiceImpl implements ProfileService {
             User saved = userRepository.save(user);
 
             if (changed) {
-                String updated = (changes.length() > 2) ? changes.substring(0, changes.length() - 2) : "profile";
-                accountEmailService.sendProfileChangedEmail(saved.getEmail(), "Updated fields: " + updated);
+                String updated = changes.length() > 2
+                        ? changes.substring(0, changes.length() - 2)
+                        : "profile";
+
+                accountEmailService
+                        .sendProfileChangedEmail(saved.getEmail(), "Updated fields: " + updated)
+                        .block();
             }
 
             return toMe(saved);
@@ -108,19 +117,20 @@ public class ProfileServiceImpl implements ProfileService {
         return ReactorBlocking.run(() -> {
             User user = findByEmail(email);
 
-            if (!passwordEncoder.matches(dto.getOldPassword(), user.getPassword())) {
+            if (!passwordEncoder.matches(dto.getOldPassword(), user.getPasswordHash())) {
                 throw new BadRequestException("Old password is incorrect");
             }
 
-            // optional safety: prevent same password
-            if (passwordEncoder.matches(dto.getNewPassword(), user.getPassword())) {
+            if (passwordEncoder.matches(dto.getNewPassword(), user.getPasswordHash())) {
                 throw new BadRequestException("New password must be different");
             }
 
-            user.setPassword(passwordEncoder.encode(dto.getNewPassword()));
+            user.setPasswordHash(passwordEncoder.encode(dto.getNewPassword()));
             userRepository.save(user);
 
-            accountEmailService.sendPasswordChangedEmail(user.getEmail());
+            accountEmailService
+                    .sendPasswordChangedEmail(user.getEmail())
+                    .block();
         });
     }
 
@@ -135,11 +145,14 @@ public class ProfileServiceImpl implements ProfileService {
             }
             newEmail = newEmail.toLowerCase().trim();
 
-            if (!passwordEncoder.matches(dto.getPassword(), user.getPassword())) {
+            if (newEmail.equalsIgnoreCase(user.getEmail())) {
+                throw new BadRequestException("New email must be different from the current email");
+            }
+
+            if (!passwordEncoder.matches(dto.getPassword(), user.getPasswordHash())) {
                 throw new BadRequestException("Invalid password");
             }
 
-            // prevent duplicates
             userRepository.findByEmail(newEmail).ifPresent(existing -> {
                 if (!existing.getId().equals(user.getId())) {
                     throw new BadRequestException("Email already in use");
@@ -148,23 +161,26 @@ public class ProfileServiceImpl implements ProfileService {
 
             String oldEmail = user.getEmail();
 
-            // notify old email first (security)
-            accountEmailService.sendEmailChangeRequestedOldEmail(oldEmail, newEmail);
+            accountEmailService
+                    .sendEmailChangeRequestedOldEmail(oldEmail, newEmail)
+                    .block();
 
-            // switch email + force re-verification (user can't use app until verified)
             user.setEmail(newEmail);
             user.setEmailVerified(false);
             user.setEnabled(false);
 
             String token = UUID.randomUUID().toString();
             user.setEmailVerificationToken(token);
-            user.setEmailVerificationTokenExpiry(Instant.now().plus(authProps.verificationTokenMinutes(), ChronoUnit.MINUTES));
+            user.setEmailVerificationTokenExpiry(
+                    Instant.now().plus(authProps.verificationTokenMinutes(), ChronoUnit.MINUTES)
+            );
             user.setEmailVerificationSentAt(Instant.now());
 
             User saved = userRepository.save(user);
 
-            // send verification to NEW email
-            emailVerificationService.sendVerificationEmail(saved, token);
+            emailVerificationService
+                    .sendVerificationEmail(saved.getEmail(), saved.getFirstName(), token)
+                    .block();
         });
     }
 
@@ -175,7 +191,8 @@ public class ProfileServiceImpl implements ProfileService {
                 throw new BadRequestException("Verification token is required");
             }
 
-            User user = userRepository.findByEmailVerificationToken(token.trim()).orElseThrow(() -> new NotFoundException("Invalid or expired verification token"));
+            User user = userRepository.findByEmailVerificationToken(token.trim())
+                    .orElseThrow(() -> new NotFoundException("Invalid or expired verification token"));
 
             Instant expiry = user.getEmailVerificationTokenExpiry();
             if (expiry == null || expiry.isBefore(Instant.now())) {
@@ -184,46 +201,55 @@ public class ProfileServiceImpl implements ProfileService {
 
             user.setEmailVerified(true);
             user.setEnabled(true);
-
-            // clear token fields
             user.setEmailVerificationToken(null);
             user.setEmailVerificationTokenExpiry(null);
             user.setEmailVerificationSentAt(null);
 
             userRepository.save(user);
 
-            accountEmailService.sendProfileChangedEmail(user.getEmail(), "Your email address was verified successfully.");
+            accountEmailService
+                    .sendProfileChangedEmail(
+                            user.getEmail(),
+                            "Your email address was verified successfully."
+                    )
+                    .block();
         });
     }
 
     @Override
     public Mono<MeResponseDto> uploadProfilePicture(String email, FilePart file) {
         return ReactorBlocking.mono(() -> {
-            if (file == null) throw new BadRequestException("File is required");
+            if (file == null) {
+                throw new BadRequestException("File is required");
+            }
 
             User user = findByEmail(email);
 
-            String fn = file.filename().toLowerCase();
-            if (!(fn.endsWith(".png") || fn.endsWith(".jpg") || fn.endsWith(".jpeg") || fn.endsWith(".webp"))) {
-                throw new BadRequestException("Only png/jpg/jpeg/webp allowed");
+            String filename = file.filename();
+            if (filename == null || filename.isBlank()) {
+                throw new BadRequestException("Invalid file name");
+            }
+
+            String lower = filename.toLowerCase();
+            if (!(lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".webp"))) {
+                throw new BadRequestException("Only png, jpg, jpeg, and webp files are allowed");
             }
 
             Files.createDirectories(uploadRoot);
 
-            String storedName = "user-" + user.getId() + "-" + System.currentTimeMillis() + "-" + file.filename();
+            String storedName = "user-" + user.getId() + "-" + System.currentTimeMillis() + "-" + filename;
             Path dest = uploadRoot.resolve(storedName);
 
-            // NOTE: file.transferTo(...) is reactive; you're inside a blocking wrapper,
-            // so it's okay to block here, but do it with a timeout if you want extra safety.
             file.transferTo(dest).block();
 
-            // You must serve /uploads via static mapping (later). For now store the path:
             String url = "/uploads/" + storedName;
             user.setProfilePictureUrl(url);
 
             User saved = userRepository.save(user);
 
-            accountEmailService.sendProfileChangedEmail(saved.getEmail(), "Profile picture updated");
+            accountEmailService
+                    .sendProfileChangedEmail(saved.getEmail(), "Profile picture updated")
+                    .block();
 
             return toMe(saved);
         });
@@ -234,7 +260,7 @@ public class ProfileServiceImpl implements ProfileService {
         return ReactorBlocking.run(() -> {
             User user = findByEmail(email);
 
-            if (!passwordEncoder.matches(dto.getPassword(), user.getPassword())) {
+            if (!passwordEncoder.matches(dto.getPassword(), user.getPasswordHash())) {
                 throw new BadRequestException("Invalid password");
             }
 
@@ -245,21 +271,28 @@ public class ProfileServiceImpl implements ProfileService {
             }
 
             String userEmail = user.getEmail();
-
             userRepository.delete(user);
 
-            accountEmailService.sendAccountDeletedEmail(userEmail);
+            accountEmailService
+                    .sendAccountDeletedEmail(userEmail)
+                    .block();
         });
     }
 
-    // -------------------- helpers --------------------
-
     private User findByEmail(String email) {
-        if (email == null || email.isBlank()) throw new BadRequestException("Email is required");
-        return userRepository.findByEmail(email.toLowerCase().trim()).orElseThrow(() -> new NotFoundException("User not found"));
+        if (email == null || email.isBlank()) {
+            throw new BadRequestException("Email is required");
+        }
+
+        return userRepository.findByEmail(email.toLowerCase().trim())
+                .orElseThrow(() -> new NotFoundException("User not found"));
     }
 
     private MeResponseDto toMe(User user) {
-        return new MeResponseDto(user.getId(), user.getUsername(), user.getEmail());
+        return new MeResponseDto(
+                user.getId(),
+                user.getUsername(),
+                user.getEmail()
+        );
     }
 }

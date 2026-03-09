@@ -52,7 +52,6 @@ public class ProfileController {
                 .thenReturn(ApiResponseUtil.successVoid("Password changed successfully"));
     }
 
-
     @PostMapping("/change-email")
     public Mono<ResponseEntity<ApiResponse<Void>>> requestEmailChange(
             @AuthenticationPrincipal Jwt jwt,
@@ -63,13 +62,10 @@ public class ProfileController {
     }
 
     @GetMapping("/verify-email-change")
-    public Mono<ResponseEntity<ApiResponse<Void>>> verifyEmailChange(
-            @RequestParam("token") String token
-    ) {
+    public Mono<ResponseEntity<ApiResponse<Void>>> verifyEmailChange(@RequestParam("token") String token) {
         return profileService.verifyEmailChange(token)
                 .thenReturn(ApiResponseUtil.successVoid("New email verified successfully"));
     }
-
 
     @PostMapping(value = "/picture", consumes = "multipart/form-data")
     public Mono<ResponseEntity<ApiResponse<MeResponseDto>>> uploadPicture(
@@ -79,7 +75,6 @@ public class ProfileController {
         return profileService.uploadProfilePicture(email(jwt), file)
                 .map(data -> ApiResponseUtil.success("Profile picture updated successfully", data));
     }
-
 
     @DeleteMapping
     public Mono<ResponseEntity<ApiResponse<Void>>> deleteAccount(

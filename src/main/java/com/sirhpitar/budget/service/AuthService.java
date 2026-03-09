@@ -7,11 +7,10 @@ import com.sirhpitar.budget.dtos.response.Setup2faResponseDto;
 import reactor.core.publisher.Mono;
 
 public interface AuthService {
+
     Mono<Void> register(RegisterRequestDto dto);
 
-
     Mono<AuthCookieResponse> login(LoginRequestDto dto);
-
 
     Mono<AuthCookieResponse> refresh(String refreshToken);
 

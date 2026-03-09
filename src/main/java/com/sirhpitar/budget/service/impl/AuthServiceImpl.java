@@ -22,7 +22,6 @@ import com.sirhpitar.budget.utils.ReactorBlocking;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseCookie;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
@@ -36,6 +35,7 @@ import javax.crypto.spec.SecretKeySpec;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -46,10 +46,11 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class AuthServiceImpl implements AuthService {
 
-    private static final long LOGIN_CHALLENGE_MINUTES = 10; // can move to AuthProps later
+    private static final long LOGIN_CHALLENGE_MINUTES = 10;
     private static final int TOTP_STEP_SECONDS = 30;
     private static final int TOTP_DIGITS = 6;
-    private static final int TOTP_WINDOW_STEPS = 1; // allow +/- 1 step clock skew
+    private static final int TOTP_WINDOW_STEPS = 1;
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final UserRepository userRepository;
     private final RefreshTokenRepository refreshTokenRepository;
@@ -64,59 +65,66 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public Mono<Void> register(RegisterRequestDto dto) {
         return ReactorBlocking.run(() -> {
-            String email = dto.getEmail().toLowerCase().trim();
-            String username = dto.getUsername().trim();
+            String email = requireNonBlank(dto.getEmail(), "Email is required").toLowerCase().trim();
+            String username = requireNonBlank(dto.getUsername(), "Username is required").trim();
+            String firstName = requireNonBlank(dto.getFirstName(), "First name is required").trim();
+            String lastName = requireNonBlank(dto.getLastName(), "Last name is required").trim();
+            String rawPassword = requireNonBlank(dto.getPassword(), "Password is required");
 
-            userRepository.findByEmail(email).ifPresent(u -> { throw new BadRequestException("Email already in use"); });
-            userRepository.findByUsername(username).ifPresent(u -> { throw new BadRequestException("Username already in use"); });
+            userRepository.findByEmail(email).ifPresent(u -> {
+                throw new BadRequestException("Email already in use");
+            });
 
-            if (!dto.isTermsAccepted()) throw new BadRequestException("Terms of service must be accepted");
+            userRepository.findByUsername(username).ifPresent(u -> {
+                throw new BadRequestException("Username already in use");
+            });
+
+            if (!dto.isTermsAccepted()) {
+                throw new BadRequestException("Terms of service must be accepted");
+            }
 
             User user = new User();
             user.setEmail(email);
             user.setUsername(username);
-            user.setPassword(passwordEncoder.encode(dto.getPassword()));
-            user.setFirstName(dto.getFirstName().trim());
-            user.setLastName(dto.getLastName().trim());
-            user.setTermsAccepted(dto.isTermsAccepted());
-
+            user.setPasswordHash(passwordEncoder.encode(rawPassword));
+            user.setFirstName(firstName);
+            user.setLastName(lastName);
+            user.setTermsAccepted(true);
             user.setEnabled(false);
             user.setEmailVerified(false);
 
             String token = UUID.randomUUID().toString();
             user.setEmailVerificationToken(token);
-            user.setEmailVerificationTokenExpiry(Instant.now().plus(authProps.verificationTokenMinutes(), ChronoUnit.MINUTES));
+            user.setEmailVerificationTokenExpiry(
+                    Instant.now().plus(authProps.verificationTokenMinutes(), ChronoUnit.MINUTES)
+            );
             user.setEmailVerificationSentAt(Instant.now());
 
             User saved = userRepository.save(user);
 
-            // this call returns Mono; since we're already on a blocking thread wrapper, we can block
-            emailVerificationService.sendVerificationEmail(saved, token).block();
+            emailVerificationService
+                    .sendVerificationEmail(saved.getEmail(), saved.getFirstName(), token)
+                    .block();
         });
     }
 
-    /**
-     * Login behavior:
-     * - if 2FA disabled: issue access token + refresh cookie (normal)
-     * - if 2FA enabled: return AuthResponseDto(mfaRequired=true, loginChallengeToken=...) and NO refresh cookie
-     */
     @Override
     public Mono<AuthCookieResponse> login(LoginRequestDto dto) {
         return ReactorBlocking.mono(() -> {
             User user = authenticate(dto);
-
             boolean rememberMe = dto.isRememberMe();
 
             if (user.isTwoFactorEnabled()) {
-                // create login challenge token (DB-backed)
                 String rawChallenge = UUID.randomUUID().toString();
-                LoginChallenge c = new LoginChallenge();
-                c.setUserId(user.getId());
-                c.setTokenHash(sha256(rawChallenge));
-                c.setRememberMe(rememberMe);
-                c.setExpiresAt(Instant.now().plus(LOGIN_CHALLENGE_MINUTES, ChronoUnit.MINUTES));
-                c.setUsed(false);
-                loginChallengeRepository.save(c);
+
+                LoginChallenge challenge = new LoginChallenge();
+                challenge.setUserId(user.getId());
+                challenge.setTokenHash(sha256(rawChallenge));
+                challenge.setRememberMe(rememberMe);
+                challenge.setExpiresAt(Instant.now().plus(LOGIN_CHALLENGE_MINUTES, ChronoUnit.MINUTES));
+                challenge.setUsed(false);
+
+                loginChallengeRepository.save(challenge);
 
                 AuthResponseDto body = new AuthResponseDto(
                         null,
@@ -128,7 +136,6 @@ public class AuthServiceImpl implements AuthService {
                 return new AuthCookieResponse(body, null);
             }
 
-            // normal login (no MFA)
             String accessToken = issueAccessToken(user);
 
             int days = rememberMe ? authProps.refreshDaysRememberMe() : authProps.refreshDaysDefault();
@@ -154,7 +161,10 @@ public class AuthServiceImpl implements AuthService {
             RefreshToken existing = refreshTokenRepository.findByTokenHash(hash)
                     .orElseThrow(() -> new NotFoundException("Invalid refresh token"));
 
-            if (existing.isRevoked()) throw new BadRequestException("Refresh token revoked");
+            if (existing.isRevoked()) {
+                throw new BadRequestException("Refresh token revoked");
+            }
+
             if (existing.getExpiresAt() == null || existing.getExpiresAt().isBefore(Instant.now())) {
                 throw new BadRequestException("Refresh token expired");
             }
@@ -162,7 +172,6 @@ public class AuthServiceImpl implements AuthService {
             User user = userRepository.findById(existing.getUserId())
                     .orElseThrow(() -> new NotFoundException("User not found"));
 
-            // rotate
             existing.setRevoked(true);
             refreshTokenRepository.save(existing);
 
@@ -184,12 +193,14 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public Mono<Void> logout(String refreshToken) {
         return ReactorBlocking.run(() -> {
-            if (refreshToken == null || refreshToken.isBlank()) return;
+            if (refreshToken == null || refreshToken.isBlank()) {
+                return;
+            }
 
             String hash = sha256(refreshToken.trim());
-            refreshTokenRepository.findByTokenHash(hash).ifPresent(t -> {
-                t.setRevoked(true);
-                refreshTokenRepository.save(t);
+            refreshTokenRepository.findByTokenHash(hash).ifPresent(token -> {
+                token.setRevoked(true);
+                refreshTokenRepository.save(token);
             });
         });
     }
@@ -197,19 +208,24 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public Mono<Void> verifyEmail(String token) {
         return ReactorBlocking.run(() -> {
-            if (token == null || token.isBlank()) throw new BadRequestException("Verification token is required");
+            if (token == null || token.isBlank()) {
+                throw new BadRequestException("Verification token is required");
+            }
 
             User user = userRepository.findByEmailVerificationToken(token.trim())
                     .orElseThrow(() -> new NotFoundException("Invalid or expired verification token"));
 
             Instant expiry = user.getEmailVerificationTokenExpiry();
-            if (expiry == null || expiry.isBefore(Instant.now())) throw new BadRequestException("Verification token expired");
+            if (expiry == null || expiry.isBefore(Instant.now())) {
+                throw new BadRequestException("Verification token expired");
+            }
 
             user.setEmailVerified(true);
             user.setEnabled(true);
             user.setEmailVerificationToken(null);
             user.setEmailVerificationTokenExpiry(null);
             user.setEmailVerificationSentAt(null);
+
             userRepository.save(user);
         });
     }
@@ -217,16 +233,21 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public Mono<Void> resendVerification(String email) {
         return ReactorBlocking.run(() -> {
-            if (email == null || email.isBlank()) throw new BadRequestException("Email is required");
+            if (email == null || email.isBlank()) {
+                throw new BadRequestException("Email is required");
+            }
 
             User user = userRepository.findByEmail(email.toLowerCase().trim())
                     .orElseThrow(() -> new NotFoundException("User not found"));
 
-            if (user.isEmailVerified()) throw new BadRequestException("Email already verified");
+            if (user.isEmailVerified()) {
+                throw new BadRequestException("Email already verified");
+            }
 
             if (user.getEmailVerificationSentAt() != null && authProps.resendCooldownMinutes() > 0) {
                 Instant nextAllowed = user.getEmailVerificationSentAt()
                         .plus(authProps.resendCooldownMinutes(), ChronoUnit.MINUTES);
+
                 if (nextAllowed.isAfter(Instant.now())) {
                     throw new TooManyRequestsException("Verification email recently sent. Please try again later.");
                 }
@@ -234,25 +255,31 @@ public class AuthServiceImpl implements AuthService {
 
             String token = UUID.randomUUID().toString();
             user.setEmailVerificationToken(token);
-            user.setEmailVerificationTokenExpiry(Instant.now().plus(authProps.verificationTokenMinutes(), ChronoUnit.MINUTES));
+            user.setEmailVerificationTokenExpiry(
+                    Instant.now().plus(authProps.verificationTokenMinutes(), ChronoUnit.MINUTES)
+            );
             user.setEmailVerificationSentAt(Instant.now());
 
             userRepository.save(user);
-            emailVerificationService.sendVerificationEmail(user, token).block();
+
+            emailVerificationService
+                    .sendVerificationEmail(user.getEmail(), user.getFirstName(), token)
+                    .block();
         });
     }
-
-    // -------------------- PASSWORD RESET --------------------
 
     @Override
     public Mono<Void> forgotPassword(String email) {
         return ReactorBlocking.run(() -> {
-            if (email == null || email.isBlank()) return; // anti-enumeration
+            if (email == null || email.isBlank()) {
+                return;
+            }
 
             userRepository.findByEmail(email.toLowerCase().trim()).ifPresent(user -> {
                 if (user.getPasswordResetRequestedAt() != null && authProps.resetCooldownMinutes() > 0) {
                     Instant nextAllowed = user.getPasswordResetRequestedAt()
                             .plus(authProps.resetCooldownMinutes(), ChronoUnit.MINUTES);
+
                     if (nextAllowed.isAfter(Instant.now())) {
                         throw new TooManyRequestsException("Password reset recently requested. Please try again later.");
                     }
@@ -260,11 +287,16 @@ public class AuthServiceImpl implements AuthService {
 
                 String raw = UUID.randomUUID().toString();
                 user.setPasswordResetTokenHash(sha256(raw));
-                user.setPasswordResetTokenExpiry(Instant.now().plus(authProps.resetTokenMinutes(), ChronoUnit.MINUTES));
+                user.setPasswordResetTokenExpiry(
+                        Instant.now().plus(authProps.resetTokenMinutes(), ChronoUnit.MINUTES)
+                );
                 user.setPasswordResetRequestedAt(Instant.now());
 
                 userRepository.save(user);
-                emailVerificationService.sendPasswordResetEmail(user, raw).block();
+
+                emailVerificationService
+                        .sendPasswordResetEmail(user.getEmail(), user.getFirstName(), raw)
+                        .block();
             });
         });
     }
@@ -272,30 +304,33 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public Mono<Void> resetPassword(String token, String newPassword) {
         return ReactorBlocking.run(() -> {
-            if (token == null || token.isBlank()) throw new BadRequestException("Reset token is required");
-            if (newPassword == null || newPassword.isBlank()) throw new BadRequestException("New password is required");
+            if (token == null || token.isBlank()) {
+                throw new BadRequestException("Reset token is required");
+            }
+
+            if (newPassword == null || newPassword.isBlank()) {
+                throw new BadRequestException("New password is required");
+            }
 
             String hash = sha256(token.trim());
 
             User user = userRepository.findByPasswordResetTokenHash(hash)
                     .orElseThrow(() -> new NotFoundException("Invalid or expired reset token"));
 
-            if (user.getPasswordResetTokenExpiry() == null || user.getPasswordResetTokenExpiry().isBefore(Instant.now())) {
+            if (user.getPasswordResetTokenExpiry() == null ||
+                    user.getPasswordResetTokenExpiry().isBefore(Instant.now())) {
                 throw new BadRequestException("Reset token expired");
             }
 
-            user.setPassword(passwordEncoder.encode(newPassword));
+            user.setPasswordHash(passwordEncoder.encode(newPassword));
             user.setPasswordResetTokenHash(null);
             user.setPasswordResetTokenExpiry(null);
             user.setPasswordResetRequestedAt(null);
-            userRepository.save(user);
 
-            // log out all devices
+            userRepository.save(user);
             refreshTokenRepository.revokeAllActiveByUserId(user.getId());
         });
     }
-
-    // -------------------- 2FA (TOTP) --------------------
 
     @Override
     public Mono<Setup2faResponseDto> setup2fa(Long userId) {
@@ -303,13 +338,12 @@ public class AuthServiceImpl implements AuthService {
             User user = userRepository.findById(userId)
                     .orElseThrow(() -> new NotFoundException("User not found"));
 
-            // generate a new secret every time setup is called
-            String secretBase32 = generateBase32Secret(20); // 160-bit-ish
+            String secretBase32 = generateBase32Secret(20);
             user.setTwoFactorSecret(secretBase32);
             user.setTwoFactorEnabled(false);
             userRepository.save(user);
 
-            String issuer = jwtProps.issuer(); // shows in authenticator app
+            String issuer = jwtProps.issuer();
             String label = issuer + ":" + user.getEmail();
             String otpAuthUrl = buildOtpAuthUrl(label, secretBase32, issuer);
 
@@ -345,15 +379,18 @@ public class AuthServiceImpl implements AuthService {
 
             String hash = sha256(loginChallengeToken.trim());
 
-            LoginChallenge c = loginChallengeRepository.findByTokenHash(hash)
+            LoginChallenge challenge = loginChallengeRepository.findByTokenHash(hash)
                     .orElseThrow(() -> new NotFoundException("Invalid login challenge token"));
 
-            if (c.isUsed()) throw new BadRequestException("Login challenge already used");
-            if (c.getExpiresAt() == null || c.getExpiresAt().isBefore(Instant.now())) {
+            if (challenge.isUsed()) {
+                throw new BadRequestException("Login challenge already used");
+            }
+
+            if (challenge.getExpiresAt() == null || challenge.getExpiresAt().isBefore(Instant.now())) {
                 throw new BadRequestException("Login challenge expired");
             }
 
-            User user = userRepository.findById(c.getUserId())
+            User user = userRepository.findById(challenge.getUserId())
                     .orElseThrow(() -> new NotFoundException("User not found"));
 
             if (!user.isTwoFactorEnabled() || user.getTwoFactorSecret() == null) {
@@ -364,14 +401,12 @@ public class AuthServiceImpl implements AuthService {
                 throw new BadRequestException("Invalid 2FA code");
             }
 
-            // mark used
-            c.setUsed(true);
-            loginChallengeRepository.save(c);
+            challenge.setUsed(true);
+            loginChallengeRepository.save(challenge);
 
-            // issue tokens
             String accessToken = issueAccessToken(user);
 
-            boolean rememberMe = c.isRememberMe();
+            boolean rememberMe = challenge.isRememberMe();
             int days = rememberMe ? authProps.refreshDaysRememberMe() : authProps.refreshDaysDefault();
 
             String refreshRaw = UUID.randomUUID().toString();
@@ -390,8 +425,8 @@ public class AuthServiceImpl implements AuthService {
             User user = userRepository.findById(userId)
                     .orElseThrow(() -> new NotFoundException("User not found"));
 
-            if (!passwordEncoder.matches(password, user.getPassword())) {
-                throw new NotFoundException("Invalid credentials");
+            if (!passwordEncoder.matches(password, user.getPasswordHash())) {
+                throw new BadRequestException("Invalid credentials");
             }
 
             if (!user.isTwoFactorEnabled() || user.getTwoFactorSecret() == null) {
@@ -406,28 +441,30 @@ public class AuthServiceImpl implements AuthService {
             user.setTwoFactorSecret(null);
             userRepository.save(user);
 
-            // log out all devices
             refreshTokenRepository.revokeAllActiveByUserId(userId);
         });
     }
 
-    // -------------------- helpers --------------------
-
     private User authenticate(LoginRequestDto dto) {
-        String identifier = dto.getEmailOrUsername().trim();
+        String identifier = requireNonBlank(dto.getEmailOrUsername(), "Email or username is required").trim();
 
         User user = userRepository.findByEmail(identifier.toLowerCase())
                 .orElseGet(() -> userRepository.findByUsername(identifier)
-                        .orElseThrow(() -> new NotFoundException("Invalid credentials")));
+                        .orElseThrow(() -> new BadRequestException("Invalid credentials")));
 
-        if (!user.isEmailVerified()) throw new BadRequestException("Email not verified");
-        if (!user.isEnabled()) throw new BadRequestException("Account disabled");
+        if (!user.isEmailVerified()) {
+            throw new BadRequestException("Email not verified");
+        }
+
+        if (!user.isEnabled()) {
+            throw new BadRequestException("Account disabled");
+        }
 
         if (user.getLockedUntil() != null && user.getLockedUntil().isAfter(Instant.now())) {
             throw new BadRequestException("Account locked. Try again later.");
         }
 
-        boolean ok = passwordEncoder.matches(dto.getPassword(), user.getPassword());
+        boolean ok = passwordEncoder.matches(dto.getPassword(), user.getPasswordHash());
         if (!ok) {
             int fails = user.getFailedLoginAttempts() + 1;
             user.setFailedLoginAttempts(fails);
@@ -438,7 +475,7 @@ public class AuthServiceImpl implements AuthService {
             }
 
             userRepository.save(user);
-            throw new NotFoundException("Invalid credentials");
+            throw new BadRequestException("Invalid credentials");
         }
 
         user.setFailedLoginAttempts(0);
@@ -449,19 +486,19 @@ public class AuthServiceImpl implements AuthService {
     }
 
     private void saveRefreshToken(Long userId, String rawToken, Instant expiresAt, boolean rememberMe) {
-        RefreshToken t = new RefreshToken();
-        t.setUserId(userId);
-        t.setTokenHash(sha256(rawToken));
-        t.setExpiresAt(expiresAt);
-        t.setRevoked(false);
-        t.setRememberMe(rememberMe);
-        refreshTokenRepository.save(t);
+        RefreshToken refreshToken = new RefreshToken();
+        refreshToken.setUserId(userId);
+        refreshToken.setTokenHash(sha256(rawToken));
+        refreshToken.setExpiresAt(expiresAt);
+        refreshToken.setRevoked(false);
+        refreshToken.setRememberMe(rememberMe);
+        refreshTokenRepository.save(refreshToken);
     }
 
     private ResponseCookie buildRefreshCookie(String raw, int days) {
         return ResponseCookie.from("refreshToken", raw)
                 .httpOnly(true)
-                .secure(false) // true in prod (HTTPS)
+                .secure(false)
                 .sameSite("Lax")
                 .path("/api/auth")
                 .maxAge(Duration.ofDays(days))
@@ -499,30 +536,37 @@ public class AuthServiceImpl implements AuthService {
         return jwtEncoder.encode(JwtEncoderParameters.from(headers, claims)).getTokenValue();
     }
 
-    // -------------------- TOTP (no dependency) --------------------
-
     private boolean verifyTotp(String secretBase32, String code) {
-        if (code == null) return false;
+        if (code == null) {
+            return false;
+        }
+
         String trimmed = code.trim();
-        if (!trimmed.matches("^\\d{6}$")) return false;
+        if (!trimmed.matches("^\\d{6}$")) {
+            return false;
+        }
 
         long nowSeconds = Instant.now().getEpochSecond();
         long counter = nowSeconds / TOTP_STEP_SECONDS;
 
         for (int i = -TOTP_WINDOW_STEPS; i <= TOTP_WINDOW_STEPS; i++) {
             String expected = totpAt(secretBase32, counter + i);
-            if (expected.equals(trimmed)) return true;
+            if (expected.equals(trimmed)) {
+                return true;
+            }
         }
+
         return false;
     }
 
     private String totpAt(String secretBase32, long counter) {
         byte[] key = base32Decode(secretBase32);
         byte[] msg = new byte[8];
-        long v = counter;
+        long value = counter;
+
         for (int i = 7; i >= 0; i--) {
-            msg[i] = (byte) (v & 0xFF);
-            v >>= 8;
+            msg[i] = (byte) (value & 0xFF);
+            value >>= 8;
         }
 
         byte[] hmac = hmacSha1(key, msg);
@@ -550,9 +594,7 @@ public class AuthServiceImpl implements AuthService {
 
     private String generateBase32Secret(int bytesLen) {
         byte[] bytes = new byte[bytesLen];
-        for (int i = 0; i < bytesLen; i++) {
-            bytes[i] = (byte) (int) (Math.random() * 256);
-        }
+        SECURE_RANDOM.nextBytes(bytes);
         return base32Encode(bytes);
     }
 
@@ -583,20 +625,22 @@ public class AuthServiceImpl implements AuthService {
         return out.toString();
     }
 
-    private byte[] base32Decode(String s) {
-        String input = s.replace("=", "").trim().toUpperCase();
+    private byte[] base32Decode(String value) {
+        String input = value.replace("=", "").trim().toUpperCase();
         final String alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
         int buffer = 0;
         int bitsLeft = 0;
-
         byte[] out = new byte[input.length() * 5 / 8];
         int outPos = 0;
 
         for (int i = 0; i < input.length(); i++) {
             char c = input.charAt(i);
             int val = alphabet.indexOf(c);
-            if (val < 0) continue;
+
+            if (val < 0) {
+                continue;
+            }
 
             buffer <<= 5;
             buffer |= val & 0x1F;
@@ -608,7 +652,9 @@ public class AuthServiceImpl implements AuthService {
             }
         }
 
-        if (outPos == out.length) return out;
+        if (outPos == out.length) {
+            return out;
+        }
 
         byte[] trimmed = new byte[outPos];
         System.arraycopy(out, 0, trimmed, 0, outPos);
@@ -619,6 +665,7 @@ public class AuthServiceImpl implements AuthService {
         try {
             String encLabel = URLEncoder.encode(label, StandardCharsets.UTF_8);
             String encIssuer = URLEncoder.encode(issuer, StandardCharsets.UTF_8);
+
             return "otpauth://totp/" + encLabel +
                     "?secret=" + secret +
                     "&issuer=" + encIssuer +
@@ -627,5 +674,12 @@ public class AuthServiceImpl implements AuthService {
         } catch (Exception e) {
             throw new RuntimeException("Failed to build otpauth URL", e);
         }
+    }
+
+    private String requireNonBlank(String value, String message) {
+        if (value == null || value.isBlank()) {
+            throw new BadRequestException(message);
+        }
+        return value;
     }
 }

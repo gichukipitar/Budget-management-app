@@ -3,10 +3,10 @@ server:
 
 spring:
   application:
-    name: budget-auth-service
+    name: budget-identity-service
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/budget_app
+    url: jdbc:postgresql://localhost:5432/budget_identity_db
     username: postgres
     password: postgres
 

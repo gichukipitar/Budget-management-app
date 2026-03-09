@@ -2,7 +2,7 @@ package com.sirhpitar.budget.service;
 
 import reactor.core.publisher.Mono;
 
-public interface AccountEmailService {
+public interface AccountNotificationEmailService {
     Mono<Void> sendProfileChangedEmail(String toEmail, String message);
     Mono<Void> sendPasswordChangedEmail(String toEmail);
     Mono<Void> sendEmailChangeRequestedOldEmail(String oldEmail, String newEmail);
