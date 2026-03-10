@@ -46,10 +46,6 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class AuthServiceImpl implements AuthService {
 
-    private static final long LOGIN_CHALLENGE_MINUTES = 10;
-    private static final int TOTP_STEP_SECONDS = 30;
-    private static final int TOTP_DIGITS = 6;
-    private static final int TOTP_WINDOW_STEPS = 1;
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final UserRepository userRepository;
@@ -60,7 +56,6 @@ public class AuthServiceImpl implements AuthService {
     private final JwtProps jwtProps;
     private final AuthProps authProps;
     private final EmailVerificationService emailVerificationService;
-    private final String jwkKeyId;
 
     @Override
     public Mono<Void> register(RegisterRequestDto dto) {
@@ -121,7 +116,9 @@ public class AuthServiceImpl implements AuthService {
                 challenge.setUserId(user.getId());
                 challenge.setTokenHash(sha256(rawChallenge));
                 challenge.setRememberMe(rememberMe);
-                challenge.setExpiresAt(Instant.now().plus(LOGIN_CHALLENGE_MINUTES, ChronoUnit.MINUTES));
+                challenge.setExpiresAt(
+                        Instant.now().plus(authProps.loginChallengeMinutes(), ChronoUnit.MINUTES)
+                );
                 challenge.setUsed(false);
 
                 loginChallengeRepository.save(challenge);
@@ -530,7 +527,7 @@ public class AuthServiceImpl implements AuthService {
                 .build();
 
         JwsHeader headers = JwsHeader.with(SignatureAlgorithm.RS256)
-                .keyId(jwkKeyId)
+                .keyId(jwtProps.keyId())
                 .build();
 
         return jwtEncoder.encode(JwtEncoderParameters.from(headers, claims)).getTokenValue();
@@ -547,9 +544,9 @@ public class AuthServiceImpl implements AuthService {
         }
 
         long nowSeconds = Instant.now().getEpochSecond();
-        long counter = nowSeconds / TOTP_STEP_SECONDS;
+        long counter = nowSeconds / authProps.totpStepSeconds();
 
-        for (int i = -TOTP_WINDOW_STEPS; i <= TOTP_WINDOW_STEPS; i++) {
+        for (int i = -authProps.totpWindowSteps(); i <= authProps.totpWindowSteps(); i++) {
             String expected = totpAt(secretBase32, counter + i);
             if (expected.equals(trimmed)) {
                 return true;
@@ -578,8 +575,8 @@ public class AuthServiceImpl implements AuthService {
                         ((hmac[offset + 2] & 0xFF) << 8) |
                         (hmac[offset + 3] & 0xFF);
 
-        int otp = binary % (int) Math.pow(10, TOTP_DIGITS);
-        return String.format("%0" + TOTP_DIGITS + "d", otp);
+        int otp = binary % (int) Math.pow(10, authProps.totpDigits());
+        return String.format("%0" + authProps.totpDigits() + "d", otp);
     }
 
     private byte[] hmacSha1(byte[] key, byte[] data) {
@@ -669,8 +666,8 @@ public class AuthServiceImpl implements AuthService {
             return "otpauth://totp/" + encLabel +
                     "?secret=" + secret +
                     "&issuer=" + encIssuer +
-                    "&algorithm=SHA1&digits=" + TOTP_DIGITS +
-                    "&period=" + TOTP_STEP_SECONDS;
+                    "&algorithm=SHA1&digits=" + authProps.totpDigits() +
+                    "&period=" + authProps.totpStepSeconds();
         } catch (Exception e) {
             throw new RuntimeException("Failed to build otpauth URL", e);
         }

@@ -54,3 +54,7 @@ app:
       reset-token-minutes: 30
       refresh-days-default: 1
       refresh-days-remember-me: 30
+      login-challenge-minutes: 10
+      totp-step-seconds: 30
+      totp-digits: 6
+      totp-window-steps: 1

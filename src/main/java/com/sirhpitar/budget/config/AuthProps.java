@@ -16,5 +16,9 @@ public record AuthProps(
         int refreshDaysRememberMe,
         int resetTokenMinutes,
         long resetCooldownMinutes,
-        String resetBaseUrl
+        String resetBaseUrl,
+        long loginChallengeMinutes,
+        int totpStepSeconds,
+        int totpDigits,
+        int totpWindowSteps
 ) {}

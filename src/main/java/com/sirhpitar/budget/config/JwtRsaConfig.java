@@ -1,6 +1,5 @@
 package com.sirhpitar.budget.config;
 
-import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jose.jwk.source.ImmutableJWKSet;
@@ -12,39 +11,44 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.DefaultResourceLoader;
 import org.springframework.core.io.Resource;
+import org.springframework.security.converter.RsaKeyConverters;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.oauth2.jwt.NimbusReactiveJwtDecoder;
 import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder;
 
 import java.io.InputStream;
-import java.security.KeyFactory;
 import java.security.interfaces.RSAPrivateKey;
 import java.security.interfaces.RSAPublicKey;
-import java.security.spec.PKCS8EncodedKeySpec;
-import java.security.spec.X509EncodedKeySpec;
-import java.util.Base64;
 
 @Configuration
 @RequiredArgsConstructor
-@EnableConfigurationProperties({JwtProps.class, AuthProps.class})
+@EnableConfigurationProperties(JwtProps.class)
 public class JwtRsaConfig {
 
     private final JwtProps jwtProps;
 
     @Bean
-    public String jwkKeyId() {
-        return jwtProps.keyId();
+    public RSAPublicKey rsaPublicKey() throws Exception {
+        Resource resource = new DefaultResourceLoader().getResource(jwtProps.publicKeyLocation());
+        try (InputStream is = resource.getInputStream()) {
+            return RsaKeyConverters.x509().convert(is);
+        }
     }
 
     @Bean
-    public RSAKey rsaJwk(String jwkKeyId) {
-        RSAPublicKey publicKey = readPublicKey(jwtProps.publicKeyLocation());
-        RSAPrivateKey privateKey = readPrivateKey(jwtProps.privateKeyLocation());
+    public RSAPrivateKey rsaPrivateKey() throws Exception {
+        Resource resource = new DefaultResourceLoader().getResource(jwtProps.privateKeyLocation());
+        try (InputStream is = resource.getInputStream()) {
+            return RsaKeyConverters.pkcs8().convert(is);
+        }
+    }
 
+    @Bean
+    public RSAKey rsaJwk(RSAPublicKey publicKey, RSAPrivateKey privateKey) {
         return new RSAKey.Builder(publicKey)
                 .privateKey(privateKey)
-                .keyID(jwkKeyId)
+                .keyID(jwtProps.keyId())
                 .build();
     }
 
@@ -59,45 +63,7 @@ public class JwtRsaConfig {
     }
 
     @Bean
-    public ReactiveJwtDecoder reactiveJwtDecoder(RSAKey rsaJwk) throws JOSEException {
-        return NimbusReactiveJwtDecoder.withPublicKey(rsaJwk.toRSAPublicKey()).build();
-    }
-
-    private static RSAPrivateKey readPrivateKey(String location) {
-        try {
-            Resource resource = new DefaultResourceLoader().getResource(location);
-            try (InputStream is = resource.getInputStream()) {
-                String key = new String(is.readAllBytes())
-                        .replace("-----BEGIN PRIVATE KEY-----", "")
-                        .replace("-----END PRIVATE KEY-----", "")
-                        .replaceAll("\\s+", "");
-
-                byte[] decoded = Base64.getDecoder().decode(key);
-                PKCS8EncodedKeySpec spec = new PKCS8EncodedKeySpec(decoded);
-                KeyFactory kf = KeyFactory.getInstance("RSA");
-                return (RSAPrivateKey) kf.generatePrivate(spec);
-            }
-        } catch (Exception e) {
-            throw new IllegalStateException("Failed to load RSA private key from " + location, e);
-        }
-    }
-
-    private static RSAPublicKey readPublicKey(String location) {
-        try {
-            Resource resource = new DefaultResourceLoader().getResource(location);
-            try (InputStream is = resource.getInputStream()) {
-                String key = new String(is.readAllBytes())
-                        .replace("-----BEGIN PUBLIC KEY-----", "")
-                        .replace("-----END PUBLIC KEY-----", "")
-                        .replaceAll("\\s+", "");
-
-                byte[] decoded = Base64.getDecoder().decode(key);
-                X509EncodedKeySpec spec = new X509EncodedKeySpec(decoded);
-                KeyFactory kf = KeyFactory.getInstance("RSA");
-                return (RSAPublicKey) kf.generatePublic(spec);
-            }
-        } catch (Exception e) {
-            throw new IllegalStateException("Failed to load RSA public key from " + location, e);
-        }
+    public ReactiveJwtDecoder reactiveJwtDecoder(RSAPublicKey publicKey) {
+        return NimbusReactiveJwtDecoder.withPublicKey(publicKey).build();
     }
 }
